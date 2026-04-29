@@ -1,0 +1,5 @@
+# Local-only secrets and kustomize backups
+secret.local.yaml
+*.local.yaml
+kustomization.yaml.bak
+*.bak
