@@ -28,6 +28,19 @@ spec:
       # the node ships with by remaining stricter on the selector above.
       tolerations:
         - operator: Exists
+      # CoreDNS reachability from Spark pods over unbounded-net is unreliable
+      # (intermittent timeouts; AAAA-only responses); use public resolvers
+      # directly for outbound model pulls. In-cluster DNS (e.g. svc lookups)
+      # is not needed by Ollama itself - Open WebUI calls Ollama via its
+      # ClusterIP from the AKS side, where CoreDNS works.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 8.8.8.8
+          - 1.1.1.1
+        options:
+          - name: ndots
+            value: "1"
       containers:
         - name: ollama
           image: ollama/ollama:0.22.0
@@ -37,6 +50,10 @@ spec:
               containerPort: 11434
               protocol: TCP
           env:
+            # Force the Go resolver to prefer A records; the pod has no IPv6
+            # route, so AAAA-only responses (seen on this network) hang pulls.
+            - name: GODEBUG
+              value: "netdns=go+4"
             # Engine parameters (Ollama reads env, not a config file). See plan W1.1.
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
