@@ -42,18 +42,19 @@ data:
         },
         {
           "type": "timeseries",
-          "title": "GPU framebuffer used (GiB)",
+          "title": "GPU mem-copy utilization % per Spark",
+          "description": "DCGM_FI_DEV_FB_USED is not exported by DCGM on Spark GB10 (Tegra integrated GPU shares system RAM, no discrete framebuffer). Showing memory-copy utilization (PCIe/aperture BW) as the closest available proxy. See observability/values-dcgm-exporter.yaml.",
           "id": 3,
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 1},
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "DCGM_FI_DEV_FB_USED / 1024",
+              "expr": "DCGM_FI_DEV_MEM_COPY_UTIL",
               "legendFormat": "{{instance}}",
               "refId": "A"
             }
           ],
-          "fieldConfig": {"defaults": {"unit": "decgbytes"}, "overrides": []}
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []}
         },
         {
           "type": "timeseries",
