@@ -154,24 +154,26 @@ The "press one button" demo:
 ```bash
 make w1.6-run-vllm           # creates Job, waits for completion (~3 min)
 make w1.6-results-fetch      # copies JSON off the PVC
-jq '.phases[] | {concurrency,
-                 aggregate_decode_tokens_per_s,
-                 p50_latency_s,
-                 peak_gpu_power_w}' \
+jq '.phases[] | {c: .concurrency,
+                 agg_tps: .aggregate_decode_tokens_per_s,
+                 p50_s: .latency_s_p50,
+                 p95_s: .latency_s_p95,
+                 per_req_tps_p50: .per_req_decode_tokens_per_s_p50,
+                 peak_w: .peak_gpu_power_w}' \
   bench/results/lab-bench-vllm-w1-2.json
 ```
 
 Expected (reproduced 2026-04-30):
 
-| c  | aggregate t/s | p50 (s) | peak W |
-|---:|--------------:|--------:|-------:|
-|  1 |          62.5 |    2.05 |   32.3 |
-|  4 |         199.6 |    2.21 |   35.8 |
-|  8 |         299.2 |    2.47 |   35.8 |
-| 16 |         462.2 |    2.81 |   35.8 |
+| c  | agg t/s | p50 (s) | p95 (s) | per-req t/s p50 | peak W |
+|---:|--------:|--------:|--------:|----------------:|-------:|
+|  1 |    62.8 |    2.04 |    2.05 |            62.9 |   32.4 |
+|  4 |   198.5 |    2.54 |    2.75 |            50.4 |   35.8 |
+|  8 |   327.0 |    2.58 |    2.74 |            49.7 |   35.8 |
+| 16 |   460.5 |    2.79 |    2.79 |            45.9 |   35.8 |
 
-Talking points: linear-ish scale to c=16, p50 only doubles for 7×
-throughput, GB10 saturates near 36 W under load. Stdlib-only Python
+Talking points: linear-ish scale to c=16, p50 only edges up by ~37% for
+7× throughput, GB10 saturates near 36 W under load. Stdlib-only Python
 harness, schema `unbounded-lab-bench/v1`, runs in `python:3.12-slim`.
 
 ---
