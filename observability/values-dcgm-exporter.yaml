@@ -6,10 +6,13 @@
 #
 # DCGM on Spark GB10 (Tegra/integrated GPU) does NOT export memory fields
 # (DCGM_FI_DEV_FB_USED/FREE/TOTAL): those are silently absent even with the
-# DCP counter set. Working metrics on this hardware are GPU_UTIL,
-# MEM_COPY_UTIL, POWER_USAGE, GPU_TEMP, MEMORY_TEMP, SM_CLOCK,
-# TOTAL_ENERGY_CONSUMPTION. The bench harness uses POWER_USAGE peak as the
-# "GPU was busy" signal for that reason.
+# DCP counter set. MEM_COPY_UTIL is technically exposed but stays at 0
+# even under heavy load (the underlying counter needs a DCGM module that
+# isn't loaded on Tegra). Working metrics on this hardware: GPU_UTIL,
+# POWER_USAGE, GPU_TEMP, MEMORY_TEMP, SM_CLOCK, TOTAL_ENERGY_CONSUMPTION.
+# The bench harness uses POWER_USAGE peak as the "GPU was busy" signal;
+# the Grafana dashboard uses rate(vllm:generation_tokens_total) as the
+# most direct view of engine throughput.
 
 nodeSelector:
   lab.unbounded.cloud/hardware-class: dgx-spark-gb10
