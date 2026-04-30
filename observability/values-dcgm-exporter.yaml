@@ -3,6 +3,13 @@
 #
 # Default exporter mode is "embedded" (no -r arg): the binary links libdcgm
 # directly and talks to the driver via NVML/CDI. That's what works on Spark.
+#
+# DCGM on Spark GB10 (Tegra/integrated GPU) does NOT export memory fields
+# (DCGM_FI_DEV_FB_USED/FREE/TOTAL): those are silently absent even with the
+# DCP counter set. Working metrics on this hardware are GPU_UTIL,
+# MEM_COPY_UTIL, POWER_USAGE, GPU_TEMP, MEMORY_TEMP, SM_CLOCK,
+# TOTAL_ENERGY_CONSUMPTION. The bench harness uses POWER_USAGE peak as the
+# "GPU was busy" signal for that reason.
 
 nodeSelector:
   lab.unbounded.cloud/hardware-class: dgx-spark-gb10

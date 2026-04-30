@@ -2,6 +2,9 @@
 
 Wave item: **W1.2** (see [`../../plan.md`](../../plan.md)).
 
+Model: [`Qwen/Qwen3-30B-A3B`](https://huggingface.co/Qwen/Qwen3-30B-A3B) — Apache-2.0
+(Alibaba Cloud). Served here as the GPTQ-Int4 quantization via vLLM 0.11.0.
+
 Deploys a [vLLM](https://github.com/vllm-project/vllm) OpenAI-compatible
 server pinned to `spark-2c24` (Region A, GB10) with weights cached on a
 local-path PVC. Serves the **same logical model** as W1.1's Ollama

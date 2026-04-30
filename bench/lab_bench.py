@@ -155,7 +155,12 @@ def call_ollama(
 
 def query_prom_peak(prom_url: str, query: str,
                     start: float, end: float) -> float | None:
-    """Range-query Prometheus and return the max sample value, or None."""
+    """Range-query Prometheus and return the max sample value, or None.
+
+    Errors are logged to stderr (not swallowed) so a misconfigured prom URL
+    is visible in `kubectl logs` instead of producing a silent null in the
+    JSON output.
+    """
     if not prom_url:
         return None
     step = max(1.0, (end - start) / 30.0)
@@ -165,7 +170,11 @@ def query_prom_peak(prom_url: str, query: str,
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read())
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        print(f"# prom query failed: {url} -> {e!r}", file=sys.stderr)
+        return None
+    if data.get("status") != "success":
+        print(f"# prom query non-success: {data!r}", file=sys.stderr)
         return None
     series = data.get("data", {}).get("result", [])
     peak = None
@@ -177,6 +186,8 @@ def query_prom_peak(prom_url: str, query: str,
                 continue
             if peak is None or f > peak:
                 peak = f
+    if peak is None:
+        print(f"# prom query returned no samples: {query}", file=sys.stderr)
     return peak
 
 
@@ -268,6 +279,11 @@ def main() -> int:
                     help="Optional Prometheus URL for peak GPU FB query")
     ap.add_argument("--prom-gpu-uuid", default="",
                     help="Restrict GPU FB peak query to this DCGM UUID")
+    ap.add_argument("--prom-skew-s", type=float, default=60.0,
+                    help="Pad each phase window by this many seconds on "
+                         "both sides when querying Prometheus, so phases "
+                         "shorter than the scrape interval still capture "
+                         "samples. Default 60s (~2x DCGM scrape interval).")
     ap.add_argument("--out", default="/dev/stdout")
     ap.add_argument("--label", default="",
                     help="Free-form label written to JSON (e.g. 'w1.2-baseline')")
@@ -315,19 +331,26 @@ def main() -> int:
         total_completion = sum(r.completion_tokens for r in ok_results)
         aggregate_tps = total_completion / wallclock_s if wallclock_s else 0.0
 
-        peak_fb_bytes = None
+        peak_gpu_power_w = None
         if args.prom_url:
-            q = "max(DCGM_FI_DEV_FB_USED)"
+            # DCGM on Spark GB10 (Tegra integrated GPU) does NOT export
+            # FB_USED/FREE/TOTAL — those fields are silently absent. The
+            # working "GPU was busy" signal on this hardware is
+            # DCGM_FI_DEV_POWER_USAGE (watts). See
+            # observability/values-dcgm-exporter.yaml header comment.
+            q = "max(DCGM_FI_DEV_POWER_USAGE)"
             if args.prom_gpu_uuid:
                 q = (
-                    'max(DCGM_FI_DEV_FB_USED{UUID="'
+                    'max(DCGM_FI_DEV_POWER_USAGE{UUID="'
                     + args.prom_gpu_uuid + '"})'
                 )
-            # DCGM_FI_DEV_FB_USED is reported in MiB
-            peak_fb_mib = query_prom_peak(args.prom_url, q,
-                                          phase_start, phase_end)
-            if peak_fb_mib is not None:
-                peak_fb_bytes = int(peak_fb_mib * 1024 * 1024)
+            # Pad the window by `--prom-skew-s` on each side so phases
+            # shorter than the scrape interval still capture a sample.
+            peak_gpu_power_w = query_prom_peak(
+                args.prom_url, q,
+                phase_start - args.prom_skew_s,
+                phase_end + args.prom_skew_s,
+            )
 
         phases.append({
             "concurrency": c,
@@ -335,7 +358,7 @@ def main() -> int:
             "warmup_runs": args.warmup,
             "wallclock_s": wallclock_s,
             "aggregate_decode_tokens_per_s": aggregate_tps,
-            "peak_gpu_fb_bytes": peak_fb_bytes,
+            "peak_gpu_power_w": peak_gpu_power_w,
             **summary,
         })
 

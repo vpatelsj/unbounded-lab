@@ -2,6 +2,9 @@
 
 Wave item: **W1.1** (see [`../../plan.md`](../../plan.md)).
 
+Model: [`Qwen/Qwen3-30B-A3B`](https://huggingface.co/Qwen/Qwen3-30B-A3B) — Apache-2.0
+(Alibaba Cloud). Served here as the GGUF Q4_K_M quantization via Ollama.
+
 Deploys an Ollama server pinned to `spark-3d37` (Region A, GB10) with weights
 on a local-path PVC. **No public Ingress.** Customer-facing access is via
 Open WebUI (see [`../openwebui/`](../openwebui/)), which proxies Ollama
