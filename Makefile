@@ -36,7 +36,8 @@ endef
         w1.1-ollama-up w1.1-ollama-down w1.1-ollama-status \
         w1.1-openwebui-up w1.1-openwebui-down w1.1-openwebui-status \
         w1.2-up w1.2-down w1.2-status \
-        w1.2-vllm-up w1.2-vllm-down w1.2-vllm-status
+        w1.2-vllm-up w1.2-vllm-down w1.2-vllm-status \
+        w1.4-up w1.4-down w1.4-status w1.4-creds
 
 # Aggregate W1.1 = Ollama engine + Open WebUI customer chat UI.
 w1.1-up: w1.1-ollama-up w1.1-openwebui-up ## W1.1 deploy/redeploy: Ollama (Qwen MoE on spark-3d37) + Open WebUI. Set LAB_HOST=<fqdn> for the Open WebUI public hostname.
@@ -86,3 +87,28 @@ w1.2-vllm-down: ## W1.2 vLLM only - tear down
 
 w1.2-vllm-status: ## W1.2 vLLM only - status
 	kubectl -n lab-vllm-qwen-moe get statefulset,pod,svc,configmap,pvc -o wide
+
+# W1.4 = shared ingress + basic-auth pattern. Mounts both engine APIs under
+# /lab-api/* on the existing Open WebUI hostname; same cert, one auth Secret
+# per engine namespace, two engines (SGLang joins at W2.4 with one new file).
+w1.4-up: ## W1.4 deploy. Requires `make w1.4-creds` first to provision the htpasswd Secrets.
+	@test -f inference/ingress/auth-lab-ollama-qwen-moe.local.yaml \
+	  && test -f inference/ingress/auth-lab-vllm-qwen-moe.local.yaml \
+	  || (echo 'Run `make w1.4-creds` first to generate auth-*.local.yaml'; exit 1)
+	kubectl apply -f inference/ingress/auth-lab-ollama-qwen-moe.local.yaml
+	kubectl apply -f inference/ingress/auth-lab-vllm-qwen-moe.local.yaml
+	kubectl apply -k inference/ingress
+
+w1.4-down: ## W1.4 tear down. Removes ingresses + namespace; auth Secrets in engine NSes are kept (idempotent).
+	kubectl delete -k inference/ingress --ignore-not-found
+
+w1.4-status: ## W1.4 quick status
+	kubectl get ingress -A -o wide | awk 'NR==1 || /lab-/'
+
+w1.4-creds: ## W1.4 generate basic-auth credentials. Pass LAB_API_USER and LAB_API_PASS, or be prompted.
+	@if [ -n "$(LAB_API_USER)" ] && [ -n "$(LAB_API_PASS)" ]; then \
+	  inference/ingress/make-htpasswd.sh "$(LAB_API_USER)" "$(LAB_API_PASS)"; \
+	else \
+	  inference/ingress/make-htpasswd.sh; \
+	fi
+

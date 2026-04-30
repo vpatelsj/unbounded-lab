@@ -1,0 +1,44 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ollama-api
+  namespace: lab-ollama-qwen-moe
+  labels:
+    lab.unbounded.cloud/wave: "1"
+    lab.unbounded.cloud/wave-item: W1.4
+  annotations:
+    # Reuse the existing public host + cert that fronts Open WebUI. The chat
+    # UI keeps its own session auth at "/"; raw engine APIs are mounted under
+    # /lab-api/<engine>/* and gated by basic-auth at the ingress layer.
+    # Same hostname, same cert, same auth pattern, two engines: that is the
+    # W1.4 deliverable.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: lab-api-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Unbounded Lab API"
+    # Strip the /lab-api/ollama prefix before passing to the upstream.
+    # Captured group from the path regex below ($2) becomes the upstream path.
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Streaming generations: do not buffer or cap timeouts at the default 60 s.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+spec:
+  ingressClassName: nginx
+  # No `tls:` block: nginx-ingress merges Ingress resources sharing a host,
+  # and the cert is taken from the lab-openwebui Ingress that already declares
+  # TLS for this host. One Ingress declares the cert, all rules on the host
+  # use it. (See README.md for why this works.)
+  rules:
+    - host: LAB_API_HOST_PLACEHOLDER
+      http:
+        paths:
+          - path: /lab-api/ollama(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ollama
+                port:
+                  number: 11434

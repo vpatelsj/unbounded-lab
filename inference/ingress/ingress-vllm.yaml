@@ -1,0 +1,44 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-api
+  namespace: lab-vllm-qwen-moe
+  labels:
+    lab.unbounded.cloud/wave: "1"
+    lab.unbounded.cloud/wave-item: W1.4
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: lab-api-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Unbounded Lab API"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+spec:
+  ingressClassName: nginx
+  # See ingress-ollama.yaml for the no-`tls:` rationale.
+  rules:
+    - host: LAB_API_HOST_PLACEHOLDER
+      http:
+        paths:
+          # vLLM native OpenAI surface (/v1/...).
+          - path: /lab-api/vllm(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: vllm
+                port:
+                  number: 8000
+          # Ollama-compat shim sidecar on the same vLLM Service. Lets a
+          # caller hit either API surface against the same engine via
+          # /lab-api/vllm-ollama/api/tags etc.
+          - path: /lab-api/vllm-ollama(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: vllm
+                port:
+                  number: 11434
