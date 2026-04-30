@@ -1,0 +1,28 @@
+# NVIDIA DCGM exporter — pinned to Spark GPU nodes only.
+# Chart: nvidia/dcgm-exporter
+#
+# Default exporter mode is "embedded" (no -r arg): the binary links libdcgm
+# directly and talks to the driver via NVML/CDI. That's what works on Spark.
+
+nodeSelector:
+  lab.unbounded.cloud/hardware-class: dgx-spark-gb10
+
+tolerations:
+  - operator: Exists
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+# Static scrape config in values-kube-prometheus-stack.yaml picks this up.
+# Don't also create a ServiceMonitor; otherwise we'd double-scrape.
+serviceMonitor:
+  enabled: false
+
+service:
+  enabled: true
+  type: ClusterIP

@@ -37,7 +37,8 @@ endef
         w1.1-openwebui-up w1.1-openwebui-down w1.1-openwebui-status \
         w1.2-up w1.2-down w1.2-status \
         w1.2-vllm-up w1.2-vllm-down w1.2-vllm-status \
-        w1.4-up w1.4-down w1.4-status w1.4-creds
+        w1.4-up w1.4-down w1.4-status w1.4-creds \
+        w1.5-up w1.5-down w1.5-status w1.5-grafana w1.5-grafana-pwd
 
 # Aggregate W1.1 = Ollama engine + Open WebUI customer chat UI.
 w1.1-up: w1.1-ollama-up w1.1-openwebui-up ## W1.1 deploy/redeploy: Ollama (Qwen MoE on spark-3d37) + Open WebUI. Set LAB_HOST=<fqdn> for the Open WebUI public hostname.
@@ -112,3 +113,43 @@ w1.4-creds: ## W1.4 generate basic-auth credentials. Pass LAB_API_USER and LAB_A
 	  inference/ingress/make-htpasswd.sh; \
 	fi
 
+# W1.5 = observability foundation. kube-prometheus-stack on the AKS system
+# pool, DCGM exporter pinned to Spark GPU nodes, an initial overview
+# dashboard. Grafana stays cluster-internal (port-forward); public Grafana
+# with shared auth is deferred.
+KPS_CHART_VERSION ?= 84.4.0
+DCGM_CHART_VERSION ?= 4.8.1
+
+w1.5-up: ## W1.5 deploy. Installs/updates kube-prometheus-stack + DCGM exporter via Helm.
+	kubectl apply -f observability/namespace.yaml
+	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
+	helm repo add nvidia https://nvidia.github.io/dcgm-exporter/helm-charts >/dev/null 2>&1 || true
+	helm repo update >/dev/null
+	helm upgrade --install lab-obs prometheus-community/kube-prometheus-stack \
+	  --namespace lab-observability \
+	  --version $(KPS_CHART_VERSION) \
+	  -f observability/values-kube-prometheus-stack.yaml \
+	  --wait --timeout 10m
+	helm upgrade --install lab-obs-dcgm nvidia/dcgm-exporter \
+	  --namespace lab-observability \
+	  --version $(DCGM_CHART_VERSION) \
+	  -f observability/values-dcgm-exporter.yaml \
+	  --wait --timeout 5m
+	kubectl apply -f observability/dashboards/
+
+w1.5-down: ## W1.5 tear down. Removes both Helm releases + dashboards + namespace.
+	helm uninstall lab-obs-dcgm -n lab-observability --ignore-not-found
+	helm uninstall lab-obs -n lab-observability --ignore-not-found
+	kubectl delete -f observability/dashboards/ --ignore-not-found
+	kubectl delete namespace lab-observability --ignore-not-found
+
+w1.5-status: ## W1.5 quick status
+	kubectl -n lab-observability get pods,daemonsets -o wide
+
+w1.5-grafana: ## W1.5 port-forward Grafana to http://localhost:3000 (admin password: `make w1.5-grafana-pwd`)
+	@echo "Grafana at http://localhost:3000  (admin / see make w1.5-grafana-pwd)"
+	kubectl -n lab-observability port-forward svc/lab-obs-grafana 3000:80
+
+w1.5-grafana-pwd: ## W1.5 print the auto-generated Grafana admin password
+	@kubectl -n lab-observability get secret lab-obs-grafana \
+	  -o jsonpath='{.data.admin-password}' | base64 -d; echo
