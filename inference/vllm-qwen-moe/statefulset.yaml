@@ -1,0 +1,248 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vllm
+  namespace: lab-vllm-qwen-moe
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/instance: qwen-moe
+spec:
+  serviceName: vllm-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm
+      app.kubernetes.io/instance: qwen-moe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm
+        app.kubernetes.io/instance: qwen-moe
+    spec:
+      runtimeClassName: nvidia
+      # Kubelet injects $VLLM_PORT=tcp://<svc-ip>:<port> into every pod in
+      # this namespace because the Service is named `vllm`. vLLM treats that
+      # env var as its own listen-port config and crashes on the URI. Drop
+      # the legacy service-link envs (DNS still resolves the service fine).
+      enableServiceLinks: false
+      # Pin to the Region A Spark dedicated to vLLM (Wave 1 convention; Ollama
+      # gets spark-3d37, vLLM gets spark-2c24, so W1.3 can measure duplicate
+      # weights "same model on two engines").
+      nodeSelector:
+        kubernetes.io/hostname: spark-2c24
+        lab.unbounded.cloud/hardware-class: dgx-spark-gb10
+      tolerations:
+        - operator: Exists
+      # Same Spark CoreDNS workaround as W1.1 ollama: AAAA-only resolver paths
+      # over unbounded-net stall HF Hub pulls. Use public resolvers directly.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 8.8.8.8
+          - 1.1.1.1
+        options:
+          - name: ndots
+            value: "1"
+      # Shared memory volume: vLLM uses /dev/shm for NCCL / multiprocessing;
+      # the default 64 MiB is far too small for a 30B-class model.
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+        - name: tuning
+          configMap:
+            name: vllm-moe-tuning
+            # Remap the sanitized ConfigMap key to the filename vLLM hashes
+            # for at runtime (E,N,dtype,device). Update both sides together
+            # when the GB10 tune lands.
+            items:
+              - key: gb10-moe.json
+                path: E=128,N=768,device_name=NVIDIA_GB10.json
+        - name: proxy-src
+          configMap:
+            name: vllm-ollama-proxy
+      containers:
+        - name: vllm
+          # vLLM publishes ARM64+CUDA images alongside x86 starting at v0.11.
+          # (Earlier tags including v0.7/v0.8/v0.9/v0.10 are amd64-only and
+          # will fail to pull on Spark.) Bump in lockstep with the kernel-
+          # tuning JSON in configmap-tuning. If the operator is on an
+          # air-gapped registry, mirror this image and override here.
+          image: vllm/vllm-openai:v0.11.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model
+            - $(VLLM_SERVED_MODEL)
+            - --served-model-name
+            - $(VLLM_SERVED_MODEL)
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            # Single-GPU on Spark; W3.1 will introduce TP=2 across 2 Sparks.
+            - --tensor-parallel-size
+            - "1"
+            # Per plan W1.2 sanity-check note: 32K is the edge of OOM for KV
+            # cache on this GPU; document the actual ceiling in W1.6 bench
+            # results before raising. Start conservative.
+            - --max-model-len
+            - "32768"
+            # GB10 has 119.7 GiB unified memory but on a freshly-attached node
+            # the kernel pins ~65 GiB in unreclaimable buff/cache (DGX OS keeps
+            # /proc/sys/vm/drop_caches read-only even under privileged nsenter,
+            # so we cannot reclaim it from a pod). Sized for the worst case we
+            # actually observed on spark-2c24: ~36 GiB free at startup. The
+            # GPTQ-Int4 weights take ~17 GiB; raise utilization once we have
+            # confirmed the KV pool sizing in W1.6.
+            - --gpu-memory-utilization
+            - "0.22"
+            - --trust-remote-code
+            # GB10 reports compute capability sm_121a, which the PTXAS bundled
+            # with vLLM v0.11 (PyTorch 2.x cap 12.0) refuses to compile for.
+            # Disable CUDA-graph capture / Triton-inductor kernel compilation
+            # and run the eager PyTorch path. Slower; revisit when vLLM ships
+            # a build with a newer PTXAS that knows sm_121a.
+            - --enforce-eager
+            # vLLM v0.11+ uses --enable-log-requests (default off); the older
+            # --disable-log-requests is deprecated. Leave the flag absent to
+            # keep request logs off.
+          env:
+            - name: VLLM_SERVED_MODEL
+              # GPTQ-Int4 variant of Qwen3-30B-A3B (~17 GB safetensors).
+              # Original plan called for BF16 ~60 GB, downsized first to FP8
+              # then to GPTQ-Int4. Reasons:
+              #  1. spark-2c24 has ~65 GiB of unreclaimable host page cache
+              #     pinning unified memory; BF16 won't fit until reboot.
+              #  2. FP8 path crashes because vLLM v0.11's prebuilt CUTLASS
+              #     scaled-mm kernels target sm_80/sm_90/sm_100 only, and
+              #     GB10 reports sm_121a -> torch.ops._C.cutlass_scaled_mm
+              #     dispatches to a missing kernel and raises Error Internal
+              #     during profile_run.
+              # GPTQ-Int4 uses the Marlin INT4 kernel path which has a
+              # broader arch fallback; storage-pain journal documents the
+              # full deviation chain and the reboot follow-up.
+              value: "Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+            # Where vLLM looks up per-(E,N,device) MoE Triton tuning JSONs.
+            - name: VLLM_TUNED_CONFIG_FOLDER
+              value: /etc/vllm/tuning
+            # Cache HF downloads on the local-path PVC so a pod restart does
+            # not re-pull ~60 GB. Transformers v5 will drop TRANSFORMERS_CACHE;
+            # HF_HOME alone is sufficient and HUGGING_FACE_HUB_CACHE pins the
+            # blob dir.
+            - name: HF_HOME
+              value: /var/lib/vllm/hf
+            - name: HUGGING_FACE_HUB_CACHE
+              value: /var/lib/vllm/hf
+            # Hugging Face token for gated repos; safe-to-be-empty for the
+            # currently-served Qwen3-30B-A3B (open weights). The operator can
+            # `kubectl create secret generic hf-token --from-literal=token=...`
+            # if the model choice changes.
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+            - name: NCCL_DEBUG
+              value: WARN
+            # FlashInfer ships prebuilt CUDA kernels for sm_80/89/90/100 only;
+            # on GB10 (sm_121a) its TopKMaskLogits sampler raises "no kernel
+            # image is available for execution on the device" during the
+            # _dummy_sampler_run after profile_run. Force vLLM's native PyTorch
+            # sampler path. Revisit when FlashInfer ships sm_120/121 wheels.
+            - name: VLLM_USE_FLASHINFER_SAMPLER
+              value: "0"
+          ports:
+            - name: openai
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+              memory: 96Gi
+            requests:
+              nvidia.com/gpu: "1"
+              cpu: "2"
+              memory: 48Gi
+          volumeMounts:
+            - name: models
+              mountPath: /var/lib/vllm
+            - name: dshm
+              mountPath: /dev/shm
+            - name: tuning
+              mountPath: /etc/vllm/tuning
+              readOnly: true
+          # Model load + safetensors download for cold start can take many
+          # minutes; give the readiness probe room before failing.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: openai
+            periodSeconds: 10
+            failureThreshold: 360 # ~60 min for the first cold pull
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: openai
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: openai
+            periodSeconds: 30
+            timeoutSeconds: 5
+        - name: ollama-proxy
+          # Stdlib-only Python proxy (see configmap-proxy.yaml). No pip install,
+          # no extra image build — the script is mounted from the ConfigMap and
+          # executed directly by a stock python:3.12-slim.
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/scripts/vllm_proxy.py"]
+          env:
+            - name: VLLM_UPSTREAM
+              value: "http://127.0.0.1:8000"
+            - name: PROXY_HOST
+              value: "0.0.0.0"
+            - name: PROXY_PORT
+              value: "11434"
+            - name: VLLM_SERVED_MODEL
+              value: "Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+            - name: LAB_MODEL_TAG
+              # Match Ollama's /api/tags shape so Open WebUI sees the same name
+              # in both backends. W1.3 dedup-pain measurement depends on this.
+              value: "qwen3:30b-a3b"
+          ports:
+            - name: ollama
+              containerPort: 11434
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: ollama
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 64Mi
+            limits:
+              cpu: "500m"
+              memory: 256Mi
+          volumeMounts:
+            - name: proxy-src
+              mountPath: /scripts
+              readOnly: true
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            # Qwen3-30B-A3B BF16 safetensors ~60 GB; leave headroom for the
+            # tokenizer/aux files and a future variant pull.
+            storage: 100Gi

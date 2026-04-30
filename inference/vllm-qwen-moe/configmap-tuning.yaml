@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-moe-tuning
+  namespace: lab-vllm-qwen-moe
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/instance: qwen-moe
+# vLLM's fused-MoE Triton kernel reads per-(E,N,device) tuning JSONs from the
+# directory pointed at by VLLM_TUNED_CONFIG_FOLDER. The filename is significant:
+# the kernel matches on (num_experts, intermediate_size, dtype, device_name).
+# Qwen3-30B-A3B has E=128, N=768 in BF16 on GB10 (sm_120) — verify on first
+# boot via `vllm.model_executor.layers.fused_moe.fused_moe._get_config_file_name`.
+#
+# The plan refers to `hack/E=256,N=1024,device_name=NVIDIA_GB10.json` as a
+# Spark-specific tuned config produced by `python -m vllm.model_executor.layers.fused_moe.tuning`.
+# That file is hardware-specific and not in this repo. Until it is generated:
+#
+#   - Leave the JSON below empty (vLLM falls back to its default Triton config).
+#   - Re-tune on the actual GB10 with the script above, paste the resulting
+#     dict in place of `{}` keyed by batch-size buckets, redeploy.
+#   - Filename MUST match what vLLM looks up at runtime; fix once measured.
+#
+# This ConfigMap is mounted at /etc/vllm/tuning and exposed via
+# VLLM_TUNED_CONFIG_FOLDER on the vllm container.
+data:
+  # ConfigMap keys cannot contain `=` or `,`, so we store the file under a
+  # sanitized key and remap it to the real filename vLLM hashes for via
+  # `volumes.configMap.items` in statefulset.yaml. Keep the two in lockstep.
+  #
+  # TODO(W1.2 follow-up): replace `{}` with the GB10-tuned dict and rename the
+  # mapped filename below to whatever vLLM hashes for Qwen3-30B-A3B on this GPU.
+  # Example shape (do not commit until measured):
+  #   "1": {"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128,
+  #          "GROUP_SIZE_M": 1, "num_warps": 4, "num_stages": 3}
+  gb10-moe.json: |
+    {}

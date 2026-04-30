@@ -33,6 +33,7 @@ The two never mix.
 | [`ingress/`](ingress/) | W1.4 | Shared ingress + auth + TLS pattern |
 | [`geo/`](geo/) | Wave 5 | Front Door, regional routing, FL |
 | [`bench/`](bench/) | W1.6 | Repeatable benchmark harness |
+| [`docs/`](docs/) | W1.2+ | Per-wave write-ups (e.g. W1.2 vLLM sanity check) |
 | [`storage-pain-journal.md`](storage-pain-journal.md) | all waves | Append-only measurements |
 | [`sponsor-updates/`](sponsor-updates/) | all waves | YYYY-MM.md monthly updates |
 

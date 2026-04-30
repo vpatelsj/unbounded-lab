@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: lab-vllm-qwen-moe
+resources:
+  - namespace.yaml
+  - configmap-tuning.yaml
+  - configmap-proxy.yaml
+  - service.yaml
+  - statefulset.yaml
+# No public Ingress: vLLM is reachable only on the cluster network. Open WebUI
+# (W1.1) consumes either /v1/* (native OpenAI API on port 8000) or /api/* (the
+# Ollama-compat shim on port 11434). Public ingress lands at W1.4.
+#
+# For direct API access during development:
+#     kubectl -n lab-vllm-qwen-moe port-forward svc/vllm 8000:8000  # OpenAI
+#     kubectl -n lab-vllm-qwen-moe port-forward svc/vllm 11434:11434  # Ollama-compat

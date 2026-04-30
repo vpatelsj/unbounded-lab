@@ -3,3 +3,4 @@ secret.local.yaml
 *.local.yaml
 kustomization.yaml.bak
 *.bak
+foundation/repro-aks-spark-syn-drop.sh

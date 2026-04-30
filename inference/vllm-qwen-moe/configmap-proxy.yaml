@@ -1,0 +1,258 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-ollama-proxy
+  namespace: lab-vllm-qwen-moe
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/instance: qwen-moe
+# Cleaned-up reimplementation of the hack/scratch/vllm-proxy.py referenced in
+# plan.md W1.2. Translates the small subset of Ollama's HTTP API that Open
+# WebUI (W1.1) and the W1.1 measurement runbook actually call onto vLLM's
+# OpenAI-compatible API. Stdlib only — runs on `python:3.12-slim` with no
+# pip step, no extra image build.
+data:
+  vllm_proxy.py: |
+    """Ollama-compat shim in front of vLLM's OpenAI server.
+
+    Routes implemented (only what Open WebUI + the W1.1 runbook hit):
+      GET  /                    -> "Ollama is running" (Ollama health probe)
+      GET  /api/version         -> {"version": "<vllm-shim>"}
+      GET  /api/tags            -> single-model listing matching $LAB_MODEL_TAG
+      POST /api/show            -> minimal model metadata
+      POST /api/chat            -> proxied to /v1/chat/completions, response
+                                   reshaped to Ollama's {message:{role,content}}.
+      POST /api/generate        -> proxied to /v1/completions, response reshaped
+                                   to Ollama's {response, done, ...}.
+      POST /api/pull, /api/push -> 200 no-op (vLLM weights are pre-loaded).
+
+    Streaming (`"stream": true`) is supported for /api/chat and /api/generate
+    by passing through vLLM's SSE chunks line-by-line and re-emitting them as
+    newline-delimited JSON in the Ollama shape.
+
+    Anything not listed above returns 404 — clients fall back to /v1/* directly.
+    """
+    from __future__ import annotations
+
+    import json
+    import logging
+    import os
+    import sys
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib import request as urlreq
+    from urllib.error import HTTPError, URLError
+
+    VLLM_URL = os.environ.get("VLLM_UPSTREAM", "http://127.0.0.1:8000")
+    LISTEN_HOST = os.environ.get("PROXY_HOST", "0.0.0.0")
+    LISTEN_PORT = int(os.environ.get("PROXY_PORT", "11434"))
+    # The model identifier Ollama-style clients (Open WebUI) will see. Map this
+    # to whatever HF id vLLM was launched with via $VLLM_SERVED_MODEL.
+    LAB_MODEL_TAG = os.environ.get("LAB_MODEL_TAG", "qwen3:30b-a3b")
+    VLLM_SERVED_MODEL = os.environ.get("VLLM_SERVED_MODEL", "Qwen/Qwen3-30B-A3B")
+
+    log = logging.getLogger("vllm-ollama-proxy")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+    def _now_iso() -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+    def _upstream_open(path: str, body: bytes, stream: bool):
+        req = urlreq.Request(
+            VLLM_URL.rstrip("/") + path,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        return urlreq.urlopen(req, timeout=None if stream else 600)
+
+
+    def _to_ollama_chat_chunk(openai_chunk: dict) -> dict | None:
+        """Map a single OpenAI chat.completion.chunk dict to Ollama /api/chat shape."""
+        choices = openai_chunk.get("choices") or [{}]
+        delta = choices[0].get("delta") or {}
+        finish = choices[0].get("finish_reason")
+        out = {
+            "model": LAB_MODEL_TAG,
+            "created_at": _now_iso(),
+            "message": {
+                "role": delta.get("role", "assistant"),
+                "content": delta.get("content", ""),
+            },
+            "done": finish is not None,
+        }
+        if finish is not None:
+            out["done_reason"] = finish
+        return out
+
+
+    def _to_ollama_generate_chunk(openai_chunk: dict) -> dict:
+        choices = openai_chunk.get("choices") or [{}]
+        finish = choices[0].get("finish_reason")
+        return {
+            "model": LAB_MODEL_TAG,
+            "created_at": _now_iso(),
+            "response": choices[0].get("text", ""),
+            "done": finish is not None,
+            **({"done_reason": finish} if finish is not None else {}),
+        }
+
+
+    class Handler(BaseHTTPRequestHandler):
+        # Quiet the default per-request logger; we log explicitly below.
+        def log_message(self, fmt, *args):  # noqa: N802 (stdlib name)
+            log.info("%s - %s", self.address_string(), fmt % args)
+
+        # ---- helpers -----------------------------------------------------
+        def _read_json(self) -> dict:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            raw = self.rfile.read(length) if length else b""
+            if not raw:
+                return {}
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+
+        def _send_json(self, obj, status: int = 200) -> None:
+            body = json.dumps(obj).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _send_text(self, text: str, status: int = 200) -> None:
+            body = text.encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _proxy_stream(self, upstream_path: str, payload: dict, kind: str) -> None:
+            """Stream upstream SSE -> NDJSON in Ollama shape. kind in {chat, generate}."""
+            payload = dict(payload, stream=True, model=VLLM_SERVED_MODEL)
+            try:
+                resp = _upstream_open(upstream_path, json.dumps(payload).encode(), stream=True)
+            except (HTTPError, URLError) as exc:  # pragma: no cover - network
+                self._send_json({"error": f"upstream: {exc}"}, status=502)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                for raw in resp:
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[len("data:"):].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if kind == "chat":
+                        out = _to_ollama_chat_chunk(chunk)
+                    else:
+                        out = _to_ollama_generate_chunk(chunk)
+                    self.wfile.write((json.dumps(out) + "\n").encode())
+                    self.wfile.flush()
+            finally:
+                resp.close()
+
+        def _proxy_blocking(self, upstream_path: str, payload: dict, kind: str) -> None:
+            payload = dict(payload, stream=False, model=VLLM_SERVED_MODEL)
+            try:
+                resp = _upstream_open(upstream_path, json.dumps(payload).encode(), stream=False)
+                upstream = json.loads(resp.read())
+            except (HTTPError, URLError) as exc:
+                self._send_json({"error": f"upstream: {exc}"}, status=502)
+                return
+            choices = upstream.get("choices") or [{}]
+            usage = upstream.get("usage") or {}
+            common = {
+                "model": LAB_MODEL_TAG,
+                "created_at": _now_iso(),
+                "done": True,
+                "done_reason": choices[0].get("finish_reason", "stop"),
+                "prompt_eval_count": usage.get("prompt_tokens", 0),
+                "eval_count": usage.get("completion_tokens", 0),
+            }
+            if kind == "chat":
+                msg = choices[0].get("message") or {}
+                self._send_json({**common, "message": {
+                    "role": msg.get("role", "assistant"),
+                    "content": msg.get("content", ""),
+                }})
+            else:
+                self._send_json({**common, "response": choices[0].get("text", "")})
+
+        # ---- routes ------------------------------------------------------
+        def do_GET(self):  # noqa: N802
+            if self.path in ("/", "/healthz"):
+                self._send_text("Ollama is running")
+                return
+            if self.path == "/api/version":
+                self._send_json({"version": "vllm-shim"})
+                return
+            if self.path == "/api/tags":
+                self._send_json({"models": [{
+                    "name": LAB_MODEL_TAG,
+                    "model": LAB_MODEL_TAG,
+                    "modified_at": _now_iso(),
+                    "size": 0,
+                    "digest": "vllm",
+                    "details": {
+                        "format": "safetensors",
+                        "family": "qwen",
+                        "parameter_size": "30B-A3B",
+                        "quantization_level": "BF16",
+                    },
+                }]})
+                return
+            self._send_json({"error": "not found"}, status=404)
+
+        def do_POST(self):  # noqa: N802
+            payload = self._read_json()
+            if self.path == "/api/show":
+                self._send_json({
+                    "modelfile": "",
+                    "parameters": "",
+                    "template": "",
+                    "details": {"family": "qwen", "format": "safetensors"},
+                })
+                return
+            if self.path in ("/api/pull", "/api/push", "/api/copy", "/api/delete"):
+                self._send_json({"status": "success"})
+                return
+            if self.path == "/api/chat":
+                kind, upstream_path = "chat", "/v1/chat/completions"
+            elif self.path == "/api/generate":
+                # Map Ollama /api/generate {prompt: ...} to /v1/completions {prompt: ...}
+                kind, upstream_path = "generate", "/v1/completions"
+            else:
+                self._send_json({"error": "not found"}, status=404)
+                return
+            stream = bool(payload.get("stream", True))
+            if stream:
+                self._proxy_stream(upstream_path, payload, kind)
+            else:
+                self._proxy_blocking(upstream_path, payload, kind)
+
+
+    def main() -> int:
+        log.info(
+            "vllm-ollama-proxy listening on %s:%d -> %s (model tag=%s, served=%s)",
+            LISTEN_HOST, LISTEN_PORT, VLLM_URL, LAB_MODEL_TAG, VLLM_SERVED_MODEL,
+        )
+        ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())

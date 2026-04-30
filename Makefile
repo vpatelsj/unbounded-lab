@@ -34,7 +34,9 @@ endef
 .PHONY: help \
         w1.1-up w1.1-down w1.1-status \
         w1.1-ollama-up w1.1-ollama-down w1.1-ollama-status \
-        w1.1-openwebui-up w1.1-openwebui-down w1.1-openwebui-status
+        w1.1-openwebui-up w1.1-openwebui-down w1.1-openwebui-status \
+        w1.2-up w1.2-down w1.2-status \
+        w1.2-vllm-up w1.2-vllm-down w1.2-vllm-status
 
 # Aggregate W1.1 = Ollama engine + Open WebUI customer chat UI.
 w1.1-up: w1.1-ollama-up w1.1-openwebui-up ## W1.1 deploy/redeploy: Ollama (Qwen MoE on spark-3d37) + Open WebUI. Set LAB_HOST=<fqdn> for the Open WebUI public hostname.
@@ -65,3 +67,22 @@ w1.1-openwebui-down: ## W1.1 Open WebUI only - tear down (deletes namespace + ch
 
 w1.1-openwebui-status: ## W1.1 Open WebUI only - status
 	kubectl -n lab-openwebui get deployment,pod,svc,ingress,certificate,pvc -o wide
+
+# W1.2 = vLLM serving Qwen MoE on spark-2c24 (cluster-internal; no public ingress).
+# Pairs with W1.1 Ollama on spark-3d37 to surface the "same logical model, two
+# engines, two quantizations" pain in W1.3.
+w1.2-up: w1.2-vllm-up ## W1.2 deploy/redeploy: vLLM (Qwen MoE BF16 on spark-2c24)
+
+w1.2-down: w1.2-vllm-down ## W1.2 tear down (deletes namespace + PVC; ~60 GB re-pulled on next up)
+
+w1.2-status: w1.2-vllm-status ## W1.2 quick status
+
+w1.2-vllm-up: ## W1.2 vLLM only. Cold rollout pulls ~60 GB safetensors; allow up to ~1 h.
+	kubectl apply -k inference/vllm-qwen-moe
+	kubectl -n lab-vllm-qwen-moe rollout status statefulset/vllm --timeout=60m
+
+w1.2-vllm-down: ## W1.2 vLLM only - tear down
+	kubectl delete -k inference/vllm-qwen-moe --ignore-not-found
+
+w1.2-vllm-status: ## W1.2 vLLM only - status
+	kubectl -n lab-vllm-qwen-moe get statefulset,pod,svc,configmap,pvc -o wide
