@@ -31,8 +31,8 @@ kubectl cordon "$NODE"
 # Delete the inference pod(s) on this node so they don't fight us.
 # vLLM lives on spark-2c24; Ollama on spark-3d37.
 case "$NODE" in
-  spark-2c24) kubectl -n lab-vllm    delete pod vllm-0    --wait=true ;;
-  spark-3d37) kubectl -n lab-ollama  delete pod ollama-0  --wait=true ;;
+  spark-2c24) kubectl -n lab-vllm-qwen-moe   delete pod vllm-0   --wait=true ;;
+  spark-3d37) kubectl -n lab-ollama-qwen-moe delete pod ollama-0 --wait=true ;;
 esac
 
 # DCGM exporter is fine to evict; it'll come back as part of the DS.
@@ -71,15 +71,15 @@ kubectl uncordon "$NODE"
 # Re-deploy / let StatefulSet rescheduler pick the node
 case "$NODE" in
   spark-2c24)
-    kubectl -n lab-vllm rollout status sts/vllm --timeout=10m
+    kubectl -n lab-vllm-qwen-moe rollout status sts/vllm --timeout=10m
     ;;
   spark-3d37)
-    kubectl -n lab-ollama rollout status sts/ollama --timeout=10m
+    kubectl -n lab-ollama-qwen-moe rollout status sts/ollama --timeout=10m
     ;;
 esac
 
 # Smoke test
-kubectl -n lab-vllm   port-forward svc/vllm   8000:8000 &  # one or the other
+kubectl -n lab-vllm-qwen-moe port-forward svc/vllm 8000:8000 &  # one or the other
 curl -s localhost:8000/v1/models | jq .
 ```
 

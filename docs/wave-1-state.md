@@ -27,7 +27,7 @@ TLS via cert-manager `letsencrypt-prod`.
 
 | Namespace | Pod | Node | What | Wave |
 |---|---|---|---|---|
-| `lab-ollama-qwen-moe` | `ollama-0` (StatefulSet) | `spark-3d37` | Ollama serving `qwen3:30b-a3b-q4_K_M` | W1.1 |
+| `lab-ollama-qwen-moe` | `ollama-0` (StatefulSet) | `spark-3d37` | Ollama serving `qwen3:30b-a3b` (GGUF Q4_K_M) | W1.1 |
 | `lab-vllm-qwen-moe` | `vllm-0` (StatefulSet, 2 containers: `vllm` + `proxy`) | `spark-2c24` | vLLM serving `Qwen/Qwen3-30B-A3B-GPTQ-Int4` + Ollama-shim sidecar | W1.2 |
 | `lab-openwebui` | `open-webui-*` (Deployment) | AKS user pool | Chat UI, multi-backend (Ollama + vLLM) | bonus |
 | `lab-ingress` | (no pods — namespace exists for the host-literal ConfigMap) | — | kustomize replacement target for ingress hostname | W1.4 |
