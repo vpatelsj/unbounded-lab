@@ -38,10 +38,27 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
-            # Talk to the in-cluster Ollama service directly, no public ingress
+            # Talk to the in-cluster engines directly: no public ingress
             # round-trip and no basic-auth credentials in the chat UI.
+            #
+            # W1.1 + W1.2: two engines, two namespaces, one UI.
+            #   * Ollama on its native API (lab-ollama-qwen-moe :11434)
+            #   * vLLM on its native OpenAI API (lab-vllm-qwen-moe :8000/v1)
+            # The vLLM Ollama-compat shim on :11434 also exists; we wire vLLM
+            # via the OpenAI surface here so the UI exercises both API
+            # families end-to-end (better signal for W1.3 / W1.4).
+            #
+            # W1.4 will move both behind the shared public ingress + auth
+            # proxy; until then OPENAI_API_KEYS is a dummy because vLLM does
+            # not enforce auth in-cluster.
             - name: OLLAMA_BASE_URL
               value: http://ollama.lab-ollama-qwen-moe.svc.cluster.local:11434
+            - name: OPENAI_API_BASE_URLS
+              value: http://vllm.lab-vllm-qwen-moe.svc.cluster.local:8000/v1
+            - name: OPENAI_API_KEYS
+              value: "sk-lab-vllm-no-auth"
+            - name: ENABLE_OPENAI_API
+              value: "true"
             - name: WEBUI_NAME
               value: "Unbounded Lab"
             # First signup is the admin; later signups land in 'pending' until

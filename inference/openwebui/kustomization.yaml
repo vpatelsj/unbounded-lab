@@ -27,6 +27,12 @@ replacements:
 configMapGenerator:
   - name: open-webui-host
     literals:
-      - host=chat.lab.example.com
+      # Real public hostname for the lab Open WebUI. The cert in
+      # `open-webui-tls` is issued for this name; do NOT change it without
+      # also reissuing the cert (cert-manager + DNS A record at the
+      # ingress LB IP). The kustomize `replacements:` block above patches
+      # this value into ingress.yaml's spec.tls[0].hosts[0] and
+      # spec.rules[0].host at apply time.
+      - host=vapa-ollama.canadacentral.cloudapp.azure.com
 generatorOptions:
   disableNameSuffixHash: true
