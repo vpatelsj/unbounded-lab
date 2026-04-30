@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lab-bench-vllm-w1-2
+  namespace: lab-bench
+  labels:
+    app.kubernetes.io/name: lab-bench
+    lab.unbounded.cloud/wave: "1.2"
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lab-bench
+    spec:
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+      # Pin to AKS so the bench traffic crosses the same network path
+      # production clients use (AKS -> WireGuard -> Spark). Avoids
+      # "running on the same node as the engine" hot-loop fakery.
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: agentpool
+                    operator: In
+                    values: ["gwmain", "system"]
+      enableServiceLinks: false
+      containers:
+        - name: bench
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/bench/lab_bench.py"]
+          args:
+            - --engine=vllm-openai
+            - --url=http://vllm.lab-vllm-qwen-moe.svc.cluster.local:8000/v1
+            - --model=Qwen/Qwen3-30B-A3B-GPTQ-Int4
+            - --prompt-len=512
+            - --gen-len=128
+            - --concurrency=1,4,8,16
+            - --runs=20
+            - --warmup=3
+            - --prom-url=http://lab-obs-kube-prometheus-st-prometheus.lab-observability.svc.cluster.local:9090
+            - --label=w1.2-baseline-vllm
+            - --out=/results/w1.2-vllm.json
+          volumeMounts:
+            - { name: bench-script, mountPath: /bench, readOnly: true }
+            - { name: results,      mountPath: /results }
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits:   { cpu: "1",    memory: "512Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: bench-script
+          configMap:
+            name: lab-bench-script
+            items:
+              - { key: lab_bench.py, path: lab_bench.py }
+        - name: results
+          persistentVolumeClaim:
+            claimName: lab-bench-results

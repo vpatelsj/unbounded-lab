@@ -38,7 +38,8 @@ endef
         w1.2-up w1.2-down w1.2-status \
         w1.2-vllm-up w1.2-vllm-down w1.2-vllm-status \
         w1.4-up w1.4-down w1.4-status w1.4-creds \
-        w1.5-up w1.5-down w1.5-status w1.5-grafana w1.5-grafana-pwd
+        w1.5-up w1.5-down w1.5-status w1.5-grafana w1.5-grafana-pwd \
+        w1.6-up w1.6-down w1.6-run-vllm w1.6-run-ollama w1.6-results w1.6-results-fetch
 
 # Aggregate W1.1 = Ollama engine + Open WebUI customer chat UI.
 w1.1-up: w1.1-ollama-up w1.1-openwebui-up ## W1.1 deploy/redeploy: Ollama (Qwen MoE on spark-3d37) + Open WebUI. Set LAB_HOST=<fqdn> for the Open WebUI public hostname.
@@ -153,3 +154,45 @@ w1.5-grafana: ## W1.5 port-forward Grafana to http://localhost:3000 (admin passw
 w1.5-grafana-pwd: ## W1.5 print the auto-generated Grafana admin password
 	@kubectl -n lab-observability get secret lab-obs-grafana \
 	  -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+# W1.6 = benchmark harness. Single-file Python script (stdlib-only) shipped
+# into the cluster as a ConfigMap, run as a Job from AKS so traffic crosses
+# the same WireGuard path real clients use.
+w1.6-up: ## W1.6 deploy harness namespace + script ConfigMap + results PVC.
+	kubectl apply -f bench/namespace.yaml
+	kubectl -n lab-bench create configmap lab-bench-script \
+	  --from-file=lab_bench.py=bench/lab_bench.py \
+	  --dry-run=client -o yaml | kubectl apply -f -
+
+w1.6-down: ## W1.6 tear down harness (keeps the results PVC unless you also delete the namespace).
+	kubectl delete -f bench/job-vllm-w1.2.yaml --ignore-not-found
+	kubectl delete -f bench/job-ollama-w1.1.yaml --ignore-not-found
+	kubectl delete configmap lab-bench-script -n lab-bench --ignore-not-found
+
+w1.6-run-vllm: w1.6-up ## W1.6 run the W1.2 vLLM benchmark Job (idempotent: deletes prior Job first).
+	kubectl delete -f bench/job-vllm-w1.2.yaml --ignore-not-found
+	kubectl apply -f bench/job-vllm-w1.2.yaml
+	kubectl -n lab-bench wait --for=condition=complete --timeout=20m job/lab-bench-vllm-w1-2
+
+w1.6-run-ollama: w1.6-up ## W1.6 run the W1.1 Ollama benchmark Job.
+	kubectl delete -f bench/job-ollama-w1.1.yaml --ignore-not-found
+	kubectl apply -f bench/job-ollama-w1.1.yaml
+	kubectl -n lab-bench wait --for=condition=complete --timeout=20m job/lab-bench-ollama-w1-1
+
+w1.6-results: ## W1.6 tail logs of the most recent bench Job (prints the JSON path inside the pod).
+	kubectl -n lab-bench logs -l app.kubernetes.io/name=lab-bench --tail=200
+
+w1.6-results-fetch: ## W1.6 extract the latest JSON results from Job logs into bench/results/.
+	@mkdir -p bench/results
+	@for j in lab-bench-vllm-w1-2 lab-bench-ollama-w1-1; do \
+	  pod=$$(kubectl -n lab-bench get pod -l job-name=$$j -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
+	  [ -z "$$pod" ] && continue; \
+	  kubectl -n lab-bench logs $$pod 2>/dev/null \
+	    | awk '/^{$$/,/^}$$/' > bench/results/$$j.json; \
+	  if [ -s bench/results/$$j.json ]; then \
+	    echo "extracted bench/results/$$j.json"; \
+	  else \
+	    rm -f bench/results/$$j.json; \
+	  fi; \
+	done
+	@ls -la bench/results/ 2>/dev/null || true

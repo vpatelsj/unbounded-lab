@@ -68,3 +68,28 @@ unbounded-lab. See `plan.md` -> Storage Pain Journal section for the why.
   forward proxy. Smoke tests run from a transient `curlimages/curl` pod in
   the cluster instead. Capture this as a runbook entry, not a code fix \u2014
   the DNS override is load-bearing for HF Hub pulls over unbounded-net.
+
+| 2026-04-30 | W1.3 | Same-model duplicate bytes across engines (Ollama GGUF Q4_K_M + vLLM GPTQ-Int4) | 18.557 GB + 16 GB = 34.6 GB | `du -sh /var/lib/ollama/models` on `spark-3d37` (Ollama PVC `models-ollama-0`, blob `sha256:58574f...c8eabf` = 18 556 685 856 B) plus `du -sh /var/lib/vllm/hf/hub/models--Qwen--Qwen3-30B-A3B-GPTQ-Int4` on `spark-2c24` (vLLM PVC `vllm-cache-vllm-0`). Same logical model card (`Qwen/Qwen3-30B-A3B`). Two engines, two formats, zero file-level overlap. |
+| 2026-04-30 | W1.3 | Total duplicate bytes including abandoned variant (FP8 residual) | 18.557 GB + 16 GB + 31 GB + 9.4 GB = 74.96 GB | Adds `models--Qwen--Qwen3-30B-A3B-FP8` (31 GB) and the HF Xet chunk-cache (`/var/lib/vllm/hf/xet`, 9.4 GB) which the Hub loader leaves behind. The FP8 variant never served (sm_121a CUTLASS gap, see W1.2 row); its bytes still occupy the vLLM PVC. Cleaning the FP8 dir would reclaim 31 GB; the Xet cache regenerates if reaped. |
+| 2026-04-30 | W1.3 | Cross-engine, cross-namespace, cross-node footprint for one logical model | 92.6 GB | `models-ollama-0` (18.6 GB on spark-3d37) + `vllm-cache-vllm-0` (74.0 GB on spark-2c24, where 56 GB is HF cache and ~18 GB is the operator's HF Hub mirror metadata + lock files). Two PVCs, two namespaces, two nodes. Unbounded Storage's "one canonical blob, projected views per engine" pitch lands directly here: today the lab pays full price for every engine that wants to serve `Qwen3-30B-A3B`. |
+| 2026-04-30 | W1.3 | Spark host page-cache pinned by initial pulls (reboot-pending) | ~65 GiB unreclaimable | Per the W1.2 row "Plan-deviation chain": DGX OS denies `/proc/sys/vm/drop_caches` from privileged pods using `nsenter` into init's mount/pid namespace, and `MemAvailable` tracks ~65 GiB below `MemTotal` after a sequence of large HF Hub pulls. The follow-up scheduled for W1.3 is to reboot `spark-2c24`, re-deploy the same vLLM StatefulSet from the unchanged manifest, and record the post-reboot `--gpu-memory-utilization` headroom (currently capped at 0.22 by the page-cache squeeze; expect 0.85+ post-reboot). The W1.5 Grafana dashboard plots `node_memory_MemAvailable_bytes` and buff/cache to make this measurable rather than narrative. |
+| 2026-04-30 | W1.3 | Reboot follow-up status | open | Filed as the only W1.3 carry-over into Wave 2. Blocked on coordinating downtime for `spark-2c24` (it serves the W1.2 vLLM endpoint and Open WebUI's vLLM backend through the W1.4 ingress). Action: drain the node, reboot, restore, re-deploy `inference/vllm-qwen-moe/` unchanged, append a row with the new `Available KV cache memory` and `MemAvailable` peak observed in Grafana over 1 hour idle. |
+
+### Observations (2026-04-30, W1.3)
+
+- **The "two engines, one model, double bytes" claim is now a measured 34.6
+  GB**, not a hand-wave. Add the abandoned FP8 variant and Xet chunk cache
+  and the lab is sitting on 75 GB of bytes for one logical model that
+  serves at most ~17 GB worth of GPU weights at any moment.
+- **Local-path PVCs survive node reboot.** The cold-start cost we measure
+  post-reboot is therefore the *load-into-GPU* cost (W1.1: 34.4 s for
+  Ollama, W1.2: 86.6 s for vLLM safetensors), not the
+  *re-pull-from-internet* cost. This is the right measurement for the
+  Unbounded Storage pitch — "what does the customer pay every time the
+  process restarts" — because re-pulls are amortized away by any
+  competent cache, but the GPU load is structural.
+- **W1.5 makes this self-measuring.** The "Spark host: memory used %,
+  buff/cache GiB" panels in the Grafana dashboard plot exactly the metric
+  the reboot follow-up needs to show movement on. Once the reboot lands,
+  the dashboard before/after is the artifact, not a one-off `cat
+  /proc/meminfo`.
