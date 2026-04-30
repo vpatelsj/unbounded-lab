@@ -149,8 +149,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) and on(instance) kube_node_labels{label_lab_unbounded_cloud_hardware_class=\"dgx-spark-gb10\"}",
-              "legendFormat": "{{instance}}",
+              "expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * on(instance) group_left(nodename) node_uname_info{nodename=~\"spark-.*\"}",
+              "legendFormat": "{{nodename}}",
               "refId": "A"
             }
           ],
@@ -164,8 +164,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "(node_memory_Buffers_bytes + node_memory_Cached_bytes) / 1024 / 1024 / 1024",
-              "legendFormat": "{{instance}}",
+              "expr": "((node_memory_Buffers_bytes + node_memory_Cached_bytes) / 1024 / 1024 / 1024) * on(instance) group_left(nodename) node_uname_info{nodename=~\"spark-.*\"}",
+              "legendFormat": "{{nodename}}",
               "refId": "A"
             }
           ],
@@ -173,9 +173,35 @@ data:
         },
         {
           "type": "timeseries",
+          "title": "vLLM KV cache usage % \u2014 the engine view of the same pressure",
+          "description": "vllm:kv_cache_usage_perc is what vLLM thinks of its own KV pool. Read alongside the host Memory used % and Buff/cache panels: when host buff/cache climbs, vLLM's kv pool starts shrinking under preemption/eviction. That divergence is the W1.3 unreclaimable-cache pain.",
+          "id": 23,
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 31},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "vllm:kv_cache_usage_perc * 100",
+              "legendFormat": "{{model_name}} ({{pod}})",
+              "refId": "A"
+            },
+            {
+              "expr": "vllm:num_requests_running",
+              "legendFormat": "running ({{pod}})",
+              "refId": "B"
+            },
+            {
+              "expr": "vllm:num_requests_waiting",
+              "legendFormat": "waiting ({{pod}})",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
           "title": "PVC used (lab-*)",
           "id": 30,
-          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 31},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 39},
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {

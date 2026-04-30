@@ -34,6 +34,12 @@ kube-state-metrics:
     kubernetes.azure.com/mode: system
   tolerations:
     - operator: Exists
+  # Export custom node labels (lab.unbounded.cloud/*) as `kube_node_labels`
+  # series so dashboards can filter to "Spark only" with
+  # `kube_node_labels{label_lab_unbounded_cloud_hardware_class="dgx-spark-gb10"}`.
+  # Default KSM whitelist is empty.
+  extraArgs:
+    - --metric-labels-allowlist=nodes=[lab.unbounded.cloud/hardware-class,lab.unbounded.cloud/region]
 
 # node-exporter: per-node host metrics. Multi-arch image; runs on Sparks
 # *and* the AKS pools. This is the W1.5 deliverable line "Node-exporter on
@@ -101,6 +107,28 @@ prometheus:
             target_label: node
           - source_labels: [__meta_kubernetes_pod_node_name]
             target_label: instance
+      # vLLM exposes Prometheus metrics on its OpenAI port at /metrics.
+      # Static scrape (no ServiceMonitor needed). Picks up any pod in the
+      # vLLM namespace that has a container port named "http" or numbered
+      # 8000.
+      - job_name: vllm
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [lab-vllm-qwen-moe]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            action: keep
+            regex: vllm
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: "8000"
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
 
 alertmanager:
   alertmanagerSpec:
