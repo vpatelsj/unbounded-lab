@@ -20,8 +20,8 @@ edge nodes joined via unbounded-agent + WireGuard:
 | `spark-3d37` | edge (DGX Spark) | arm64 | `a` | `dgx-spark-gb10` |
 
 Region-A labels applied via [`../../foundation/label-region-a.sh`](../../foundation/label-region-a.sh).
-nginx-ingress LB at `20.48.249.187`, public hostname
-`vapa-ollama.canadacentral.cloudapp.azure.com`,
+nginx-ingress LB at `10.X.X.X`, public hostname
+`foo.bar.com`,
 TLS via cert-manager `letsencrypt-prod`.
 
 ## Workloads by namespace
@@ -44,7 +44,7 @@ TLS via cert-manager `letsencrypt-prod`.
 | `/lab-api/vllm/` | vLLM native OpenAI `/v1` in `lab-vllm-qwen-moe` (port 8000) | basic-auth |
 | `/lab-api/vllm-ollama/` | vLLM via Ollama-shim sidecar (port 11434) | basic-auth |
 
-All four served on `https://vapa-ollama.canadacentral.cloudapp.azure.com/`.
+All four served on `https://foo.bar.com/`.
 
 ## PVC inventory
 

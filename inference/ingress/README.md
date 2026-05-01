@@ -31,7 +31,7 @@ This page is that writeup. The manifests below are the implementation.
 | `https://<host>/lab-api/vllm/*` | vLLM native OpenAI API (`lab-vllm-qwen-moe/vllm:8000`) | Basic auth |
 | `https://<host>/lab-api/vllm-ollama/*` | vLLM via the Ollama-compat shim sidecar (`lab-vllm-qwen-moe/vllm:11434`) | Basic auth |
 
-`<host>` defaults to `vapa-ollama.canadacentral.cloudapp.azure.com` — the
+`<host>` defaults to `foo.bar.com` — the
 same hostname Open WebUI already uses. **One DNS record, one ACME cert,
 one auth secret per engine namespace, two engines.**
 
@@ -68,7 +68,7 @@ make w1.4-down       # the basic-auth Secrets are not tracked by kustomize; dele
 ## API access
 
 ```sh
-HOST=vapa-ollama.canadacentral.cloudapp.azure.com
+HOST=foo.bar.com
 USER=ops
 PASS=...   # whatever you passed to make-htpasswd.sh
 

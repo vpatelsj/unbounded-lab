@@ -414,7 +414,7 @@ able to point at any layer and see Azure.
 |---|---|---|---|
 | Control plane | AKS | in use | k8s control plane + gateway nodes |
 | Networking | Azure CNI / Azure Load Balancer | in use | Pod and service networking; public ingress |
-| DNS / TLS | Azure DNS + cert-manager (ACME) | in use | `vapa-ollama.canadacentral.cloudapp.azure.com` |
+| DNS / TLS | Azure DNS + cert-manager (ACME) | in use | `foo.bar.com` |
 | Container registry | Azure Container Registry (ACR) | in use | All custom-built images pushed here |
 | Object storage | Azure Blob | planned | Model weights origin, training datasets, checkpoints |
 | Identity (workload) | Azure Workload Identity | planned | Pod -> Blob auth without static keys (Bearer token today) |

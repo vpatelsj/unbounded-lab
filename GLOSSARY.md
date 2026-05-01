@@ -71,10 +71,10 @@ These are the labels manifests use in `nodeSelector` and `kubectl get nodes -L`.
 
 | URL | What it is | Auth | Wave |
 |---|---|---|---|
-| `https://vapa-ollama.canadacentral.cloudapp.azure.com/` | Open WebUI chat UI | Open WebUI's own login | bonus / W1.1 |
-| `https://vapa-ollama.canadacentral.cloudapp.azure.com/lab-api/ollama/` | Ollama native API | basic-auth (`lab-api-basic-auth`) | W1.4 |
-| `https://vapa-ollama.canadacentral.cloudapp.azure.com/lab-api/vllm/` | vLLM native OpenAI `/v1` API | basic-auth | W1.4 |
-| `https://vapa-ollama.canadacentral.cloudapp.azure.com/lab-api/vllm-ollama/` | vLLM via Ollama-shim sidecar | basic-auth | W1.4 |
+| `https://foo.bar.com/` | Open WebUI chat UI | Open WebUI's own login | bonus / W1.1 |
+| `https://foo.bar.com/lab-api/ollama/` | Ollama native API | basic-auth (`lab-api-basic-auth`) | W1.4 |
+| `https://foo.bar.com/lab-api/vllm/` | vLLM native OpenAI `/v1` API | basic-auth | W1.4 |
+| `https://foo.bar.com/lab-api/vllm-ollama/` | vLLM via Ollama-shim sidecar | basic-auth | W1.4 |
 
 Hostname is intentionally a deployer-specific Azure default (not
 committed as a literal); see [`README.md`](README.md) `LAB_HOST` section.

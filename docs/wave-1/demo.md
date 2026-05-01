@@ -16,7 +16,7 @@ actual cluster (verified 2026-04-30).
 | Observability    | `lab-observability`   | kube-prom-stack + dcgm-exporter DS        | `lab-obs-grafana` :80, `...-prometheus` :9090|
 | Bench            | `lab-bench`           | Job `lab-bench-vllm-w1-2`                 | n/a                                          |
 
-Public hostname: `https://vapa-ollama.canadacentral.cloudapp.azure.com`.
+Public hostname: `https://foo.bar.com`.
 
 ---
 
@@ -41,12 +41,12 @@ All `Running` / `Ready`.
 
 Open in a browser:
 
-> https://vapa-ollama.canadacentral.cloudapp.azure.com
+> https://foo.bar.com
 
 Show the padlock → "Issued by: Let's Encrypt". Then:
 
 ```bash
-curl -sI https://vapa-ollama.canadacentral.cloudapp.azure.com | head -5
+curl -sI https://foo.bar.com | head -5
 kubectl -n lab-openwebui get ingress
 kubectl -n lab-openwebui get certificate
 ```
