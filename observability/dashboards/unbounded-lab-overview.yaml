@@ -216,6 +216,65 @@ data:
             }
           ],
           "fieldConfig": {"defaults": {"unit": "decgbytes"}, "overrides": []}
+        },
+        {
+          "type": "row", "collapsed": false,
+          "title": "vLLM live serving (W1.7 bench window)",
+          "id": 40,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 47}
+        },
+        {
+          "type": "timeseries",
+          "title": "vLLM concurrency \u2014 running vs waiting requests",
+          "description": "Tracks the bench harness's concurrency phase. During W1.7 the running line steps 1\u21922\u21924\u21928\u219216\u219232\u219248\u219264. If 'waiting' grows above zero, the engine is queueing \u2014 that's the knee.",
+          "id": 41,
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "vllm:num_requests_running", "legendFormat": "running ({{pod}})", "refId": "A"},
+            {"expr": "vllm:num_requests_waiting", "legendFormat": "waiting ({{pod}})", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
+          "title": "vLLM TTFT \u2014 time to first token (p50/p95/p99)",
+          "description": "vllm:time_to_first_token_seconds histogram. Prefill cost; rises with prompt length and queueing. The W1.7 harness reports the same value from the client side.",
+          "id": 42,
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[1m])))", "legendFormat": "p50", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[1m])))", "legendFormat": "p95", "refId": "B"},
+            {"expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[1m])))", "legendFormat": "p99", "refId": "C"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
+          "title": "vLLM inter-token latency / TPOT (p50/p95)",
+          "description": "vllm:time_per_output_token_seconds histogram. The 'fluency-per-token' the user feels under streaming. Should rise with concurrency as the batch shares decode budget.",
+          "id": 43,
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 56},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:time_per_output_token_seconds_bucket[1m]))) * 1000", "legendFormat": "p50 (ms)", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:time_per_output_token_seconds_bucket[1m]))) * 1000", "legendFormat": "p95 (ms)", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "ms", "min": 0}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
+          "title": "vLLM queue time (p50/p95) \u2014 backpressure signal",
+          "description": "vllm:request_queue_time_seconds. Time a request waits before it enters RUNNING. Stays near 0 below the knee; spikes when continuous batching can't admit the next request immediately.",
+          "id": 44,
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 56},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:request_queue_time_seconds_bucket[1m])))", "legendFormat": "p50", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:request_queue_time_seconds_bucket[1m])))", "legendFormat": "p95", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []}
         }
       ],
       "refresh": "30s",
