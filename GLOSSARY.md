@@ -1,8 +1,8 @@
 # Glossary
 
-Canonical names used throughout this repo and in [`plan.md`](plan.md).
-This file is the source of truth; if [`plan.md`](plan.md) and this file
-disagree, this file wins (and `plan.md` should be patched).
+Canonical names used throughout this repo and in [ROADMAP.md](ROADMAP.md).
+This file is the source of truth; if [ROADMAP.md](ROADMAP.md) and this file
+disagree, this file wins (and `ROADMAP.md` should be patched).
 
 Append entries when a new wave introduces a new model, namespace, label,
 or region. Never silently rename — always add an alias row pointing to
@@ -21,12 +21,12 @@ the new canonical form.
 | `bge-reranker` | reranker for W2.7 RAG | safetensors | W2.7 |
 | `nomic-embed-text` | alternative embedding for W2.7 | safetensors | W2.7 |
 
-> Plan-deviation note: the plan references `qwen-3.5-35b-a3b` (~24 GB
+> Plan-deviation note: the roadmap references `qwen-3.5-35b-a3b` (~24 GB
 > GGUF, ~70 GB BF16). The lab actually deploys `qwen-3-30b-a3b`, the
 > generation actually shipped at deploy time. Same architecture family
 > (Qwen MoE), different generation+size. See
-> [docs/w1.2-vllm-sanity.md](docs/w1.2-vllm-sanity.md) for the model
-> deviation chain (BF16 → FP8 → GPTQ-Int4).
+> [docs/wave-1/w1.2-vllm-sanity.md](docs/wave-1/w1.2-vllm-sanity.md) for the
+> model deviation chain (BF16 → FP8 → GPTQ-Int4).
 
 ## Namespaces
 

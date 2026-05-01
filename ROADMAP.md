@@ -1,12 +1,22 @@
-# Plan: unbounded-lab
+# Roadmap: unbounded-lab
 
 *AI showcase and proving ground for unbounded-kube, running on DGX Spark today and
 designed to transplant onto GB200/GB300 tomorrow.*
 
-> **Note:** This plan was originally drafted while `lab/` lived inside the
-> `unbounded-kube` repo. Path references like `lab/inference/...`,
-> `lab/training/...`, etc. now correspond to `inference/...`, `training/...`
-> at the root of this standalone repo. The narrative is otherwise unchanged.
+> **What this doc is.** The strategic plan for the lab: goals, hardware
+> inventory, wave structure (W1 \u2192 W5), risk register, GB200/GB300
+> transfer rubric. Forward-looking; W2\u2013W5 items are planned, not yet
+> shipped. For wave-agnostic architecture see
+> [ARCHITECTURE.md](ARCHITECTURE.md); for what's deployed today see
+> [STATE.md](STATE.md); for canonical names see
+> [GLOSSARY.md](GLOSSARY.md); for monthly progress see
+> [sponsor-updates/](sponsor-updates/).
+>
+> Originally drafted while `lab/` lived inside the `unbounded-kube`
+> repo, so a few path references in long-form sections still read
+> `lab/inference/...` — those map onto `inference/...` at the root of
+> this standalone repo. The narrative is otherwise unchanged from the
+> originally-circulated plan.
 
 ## Goals
 
@@ -95,7 +105,7 @@ lab/
   ingress/                  # W1.4 shared ingress + auth + TLS pattern
   geo/                      # Wave 5 (Front Door config, region-aware routing, FL)
   bench/                    # benchmark harness (see Benchmark Methodology)
-  storage-pain-journal.md   # the running measurements table (append-only)
+  JOURNAL.md                # the running measurements table (append-only)
   sponsor-updates/          # YYYY-MM.md monthly written updates
 ```
 
@@ -282,7 +292,7 @@ points as we build each wave item. This serves two audiences:
 | Cross-region checkpoint transfer time | W5.6 | Job migration wall time |
 | Time to recover in DR (model weights availability) | W5.4 | From region kill to first response in survivor |
 
-**Deliverable:** A running table at `lab/storage-pain-journal.md` (append-only) that
+**Deliverable:** A running table at `JOURNAL.md` at the repo root (append-only) that
 fills in actual measured values as each wave item ships. By the end of the showcase, we
 will have a data-backed story of "this is what AI storage friction looks like today" -
 which is exactly what Unbounded Storage's pitch needs to land.
@@ -523,7 +533,7 @@ stable baseline to measure the Storage Pain Journal against.
   - Deliverable: `bench/job-vllm-w1.7-sweep.yaml` + new `make`
     targets (`w1.7-run-vllm`, `w1.7-results-fetch`, `w1.7-show`) +
     one sweep JSON in `bench/results/lab-bench-vllm-w1-7.json` +
-    schema-v2 fields visible in [docs/wave-1-demo.md](docs/wave-1-demo.md)
+    schema-v2 fields visible in [docs/wave-1/demo.md](docs/wave-1/demo.md)
     section 6.1.
   - **Carry-overs deferred to W2.0 Bench v3** (explicitly listed so they
     are not lost):
@@ -1114,7 +1124,7 @@ Wave 5, consider dedicating one region (or one Spark within a region) to staging
 
 ## Verification
 
-Per-wave functional checks. Storage Pain Journal metrics (logged at `lab/storage-pain-journal.md`)
+Per-wave functional checks. Storage Pain Journal metrics (logged at `JOURNAL.md`)
 are the quantitative side; the items below are the qualitative pass/fail.
 
 - **Wave 1**: each deployed engine (Ollama, vLLM) responds to curl requests with correct

@@ -1,7 +1,8 @@
 # Storage Pain Journal
 
 Append-only record of measured AI-data friction encountered while building the
-unbounded-lab. See `plan.md` -> Storage Pain Journal section for the why.
+unbounded-lab. See [ROADMAP.md](ROADMAP.md) → Storage Pain Journal section for
+the why.
 
 **Rules:**
 - One row per measurement event. Date stamped. Cluster + node identified.

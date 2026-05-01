@@ -3,8 +3,8 @@
 When `node_memory_MemAvailable_bytes` on a Spark drops below ~5\u202fGiB and
 the GPU buffer page cache (`Buffers + Cached`) is pinned around 65\u202fGiB,
 inference latency spikes and KV pool capacity collapses (see
-[`../storage-pain-journal.md`](../storage-pain-journal.md)). The only known
-fix today is a full reboot of the Spark node. This doc is the procedure.
+[`../../JOURNAL.md`](../../JOURNAL.md)). The only known fix today is a full
+reboot of the Spark node. This doc is the procedure.
 
 ## Pre-checks
 
@@ -94,7 +94,7 @@ ssh "$NODE" cat /proc/meminfo | grep -E "MemAvailable|Buffers|Cached|Slab"
 ```
 
 Open the same Grafana panel; screenshot the "after" series. Append a row
-to [`../storage-pain-journal.md`](../storage-pain-journal.md):
+to [`../../JOURNAL.md`](../../JOURNAL.md):
 
 ```
 | YYYY-MM-DD | spark-2c24 | reboot | MemAvailable XX GiB \u2192 YY GiB | Buffers+Cached ZZ GiB \u2192 WW GiB | KV pool A \u2192 B GiB |

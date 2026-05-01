@@ -3,6 +3,10 @@
 Snapshot of what's deployed at the close of Wave 1. AKS Canada Central +
 two DGX Sparks (Region A) running Qwen3-30B-A3B behind a public Open WebUI.
 
+> **Frozen.** This is the architecture as it stood at Wave 1 close. For
+> the wave-agnostic, currently-true view see
+> [ARCHITECTURE.md](../../ARCHITECTURE.md).
+
 ## Topology
 
 ```mermaid
@@ -12,7 +16,7 @@ flowchart LR
   subgraph aks["AKS \u2014 Canada Central (apollo-lab-bou-gw)"]
     direction TB
     afd --> lb[Azure LB<br/>20.48.249.187]
-    lb --> ing[ingress-nginx<br/>cert-manager letsencrypt-prod]
+          ing[ingress-nginx<br/>cert-manager letsencrypt-prod]
 
     subgraph sys["system pool (amd64, 2 nodes)"]
       direction TB
@@ -87,5 +91,5 @@ flowchart LR
   vLLM `/metrics` \u2192 Prometheus (static scrape configs) \u2192 Grafana
   dashboards under `lab-observability`.
 
-See [glossary](../GLOSSARY.md) for engine/namespace/label canon and
-[wave-1-state.md](wave-1-state.md) for endpoint/PVC inventory.
+See [glossary](../../GLOSSARY.md) for engine/namespace/label canon and
+[state.md](state.md) for endpoint/PVC inventory.

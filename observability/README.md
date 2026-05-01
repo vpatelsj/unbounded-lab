@@ -1,10 +1,20 @@
 # W1.5 — Observability foundation
 
-Wave item: **W1.5** (see [`../plan.md`](../plan.md)).
+Wave item: **W1.5** (see [ROADMAP.md](../ROADMAP.md)).
 
-> *Plan W1.5 deliverable: "Prometheus + Grafana on AKS, DCGM exporter on
-> each Spark, node-exporter on each node, initial Grafana dashboard. Every
-> later wave's measurements go through this stack."*
+> *Roadmap W1.5 deliverable: "Prometheus + Grafana on AKS, DCGM exporter
+> on each Spark, node-exporter on each node, initial Grafana dashboard.
+> Every later wave's measurements go through this stack."*
+
+## What this proves
+
+- Standard kube-prometheus-stack runs on AKS unchanged; DCGM on the
+  Sparks gives per-pod GPU attribution without manual joins.
+- The metric pipeline is the same one every later wave's measurements
+  feed; W1.6/W1.7 bench numbers, the W1.3 page-cache plot, future
+  per-engine dashboards all land in the same Grafana.
+- Multi-arch DaemonSet pinning works (node-exporter on every node;
+  DCGM only on `dgx-spark-gb10`-labeled nodes).
 
 ## What's deployed
 
@@ -17,11 +27,12 @@ Wave item: **W1.5** (see [`../plan.md`](../plan.md)).
 | DCGM exporter | `nvidia/dcgm-exporter` (Helm) | **Sparks only** (`nodeSelector: lab.unbounded.cloud/hardware-class=dgx-spark-gb10`) |
 | Initial dashboard | ConfigMap (`unbounded-lab-overview`) | Auto-loaded by Grafana sidecar |
 
-All workloads run as Deployments/DaemonSets in `lab-observability`. Per the plan,
-**Grafana stays cluster-internal** (port-forward to reach it); a public
-Grafana with shared auth would expand the W1.4 auth surface and is deferred.
+All workloads run as Deployments/DaemonSets in `lab-observability`. Per
+the roadmap, **Grafana stays cluster-internal** (port-forward to reach
+it); a public Grafana with shared auth would expand the W1.4 auth
+surface and is deferred.
 
-## File layout
+## Files
 
 | File | Role |
 |---|---|
@@ -30,14 +41,16 @@ Grafana with shared auth would expand the W1.4 auth surface and is deferred.
 | [`values-dcgm-exporter.yaml`](values-dcgm-exporter.yaml) | Helm values for the NVIDIA dcgm-exporter chart |
 | [`dashboards/unbounded-lab-overview.yaml`](dashboards/unbounded-lab-overview.yaml) | Initial Grafana dashboard ConfigMap |
 
-Chart versions are pinned in the top-level [`Makefile`](../Makefile)
-(`KPS_CHART_VERSION`, `DCGM_CHART_VERSION`) so re-deploys are reproducible.
-Bump them with one targeted PR.
+Chart versions are pinned in the top-level [Makefile](../Makefile)
+(`KPS_CHART_VERSION`, `DCGM_CHART_VERSION`) so re-deploys are
+reproducible. Bump them with one targeted PR.
 
-## Deploy
+## Deploy, status, teardown
 
 ```sh
-make w1.5-up
+make w1.5-up           # idempotent
+make w1.5-status       # pods, daemonsets
+make w1.5-down         # uninstall both Helm releases + namespace
 ```
 
 Equivalent manual flow:
@@ -59,7 +72,9 @@ helm upgrade --install lab-obs-dcgm nvidia/dcgm-exporter \
 kubectl apply -f observability/dashboards/
 ```
 
-## Reaching Grafana
+## API access
+
+Grafana is cluster-internal; reach it via port-forward:
 
 ```sh
 make w1.5-grafana-pwd        # prints the auto-generated admin password
@@ -78,7 +93,7 @@ The "Unbounded Lab — Overview" dashboard is auto-loaded; it covers:
 - **Spark host**: memory used %, buff/cache GiB. PVC usage across all
   `lab-*` namespaces (including Ollama and vLLM weights).
 
-## What Prometheus scrapes today
+### What Prometheus scrapes today
 
 - node-exporter on every node (AKS + Spark) — host-level metrics.
 - kube-state-metrics — pod / deployment / PVC / node state.
@@ -89,7 +104,7 @@ The "Unbounded Lab — Overview" dashboard is auto-loaded; it covers:
 - Prometheus itself, the operator, alertmanager, kubelet, kube-apiserver
   (the standard kube-prometheus-stack scrape set).
 
-## What it does NOT scrape yet
+### What it does NOT scrape yet
 
 - **Inference engine application metrics.** vLLM exposes `/metrics` natively
   (Prometheus format) but we have not added a `ServiceMonitor` for it yet.
@@ -103,6 +118,48 @@ The "Unbounded Lab — Overview" dashboard is auto-loaded; it covers:
 The dashboard is an *operational* view (is everything alive, are GPUs busy,
 are PVCs filling up). Application-level latency / throughput dashboards
 land with W1.6 + an inference ServiceMonitor in a follow-up.
+
+## Pain runbook
+
+N/A directly — observability is the *substrate* every other component's
+pain runbook reads from. The two known pain interactions are documented
+on the components that surface them:
+
+- DCGM-on-Tegra silently omits `DCGM_FI_DEV_FB_USED`; the bench harness
+  uses `DCGM_FI_DEV_POWER_USAGE` peak instead. See
+  [bench/README.md](../bench/README.md) and
+  [docs/wave-1/transfer-review.md](../docs/wave-1/transfer-review.md).
+- The W1.2 page-cache pinning shows up directly on the "Spark host" panel;
+  the reboot procedure is [docs/runbooks/spark-reboot.md](../docs/runbooks/spark-reboot.md).
+
+## Plan deviations
+
+None. The roadmap calls for kube-prometheus-stack + DCGM + node-exporter
++ initial Grafana dashboard; that's exactly what shipped. Two deferred
+items are explicitly Wave 2:
+
+- ServiceMonitor for vLLM `/metrics` (deferred to W2.x application-metrics
+  dashboard work).
+- Public Grafana with shared auth (deferred — would expand the W1.4 auth
+  surface).
+
+## GB200 / GB300 carry-over
+
+Per [docs/wave-1/transfer-review.md](../docs/wave-1/transfer-review.md):
+mostly transplants.
+
+- kube-prometheus-stack: transplants unchanged.
+- node-exporter: transplants unchanged.
+- DCGM exporter: transplants unchanged. Same NVML/CDI path on Grace+Blackwell.
+- Dashboard: transplants unchanged. `DCGM_FI_DEV_*` field names are stable
+  across DCGM versions and across Hopper/Blackwell/Grace generations.
+
+The only thing that changes is the dashboard reading "1 GPU per node"
+because GB200/GB300 nodes have multiple GPUs each. The metric names
+already include `gpu="0"` etc. so no PromQL changes are needed; just add
+panels that aggregate across `gpu` labels per host. DCGM on GB200 also
+exports `DCGM_FI_DEV_FB_USED` natively (Spark Tegra silently omits it),
+so the bench harness can revert its peak-FB query.
 
 ## Known gotchas
 
@@ -119,23 +176,3 @@ land with W1.6 + an inference ServiceMonitor in a follow-up.
   `grafana_dashboard: "1"` in *any* namespace and Grafana will load it.
   Convention: put per-wave dashboards in the corresponding lab namespace
   (e.g. `lab-vllm-qwen-moe/vllm-dashboard`).
-
-## Status / teardown
-
-```sh
-make w1.5-status            # pods, daemonsets
-make w1.5-down              # uninstall both releases + namespace
-```
-
-## GB200 / GB300 transfer
-
-- kube-prometheus-stack: transplants unchanged.
-- node-exporter: transplants unchanged.
-- DCGM exporter: transplants unchanged. Same NVML/CDI path on Grace+Blackwell.
-- Dashboard: transplants unchanged. `DCGM_FI_DEV_*` field names are stable
-  across DCGM versions and across Hopper/Blackwell/Grace generations.
-
-The only thing that changes is the dashboard reading "1 GPU per node"
-because GB200/GB300 nodes have multiple GPUs each. The metric names
-already include `gpu="0"` etc. so no PromQL changes are needed; just add
-panels that aggregate across `gpu` labels per host.

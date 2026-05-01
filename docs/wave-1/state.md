@@ -2,8 +2,9 @@
 
 Snapshot of the live cluster at end of Wave 1 (2026-04-30). This is the
 "single 'what's currently deployed' page" called for in the Wave 1
-Definition of Done. Kept short — for the deeper why, see each item's
-own README and [`../plan.md`](../plan.md).
+Definition of Done. Frozen — for the living view see
+[STATE.md](../../STATE.md). For the deeper why, see each item's own
+README and [ROADMAP.md](../../ROADMAP.md).
 
 ## Cluster spine
 
@@ -18,7 +19,7 @@ edge nodes joined via unbounded-agent + WireGuard:
 | `spark-2c24` | edge (DGX Spark) | arm64 | `a` | `dgx-spark-gb10` |
 | `spark-3d37` | edge (DGX Spark) | arm64 | `a` | `dgx-spark-gb10` |
 
-Region-A labels applied via [`../foundation/label-region-a.sh`](../foundation/label-region-a.sh).
+Region-A labels applied via [`../../foundation/label-region-a.sh`](../../foundation/label-region-a.sh).
 nginx-ingress LB at `20.48.249.187`, public hostname
 `vapa-ollama.canadacentral.cloudapp.azure.com`,
 TLS via cert-manager `letsencrypt-prod`.
@@ -65,7 +66,7 @@ unified memory each). License: Apache-2.0 (model card:
 
 ## Headline benchmark numbers (W1.2 vLLM, GPTQ-Int4)
 
-From [`../bench/results/lab-bench-vllm-w1-2.json`](../bench/results/lab-bench-vllm-w1-2.json)
+From [`../../bench/results/lab-bench-vllm-w1-2.json`](../../bench/results/lab-bench-vllm-w1-2.json)
 (W1.6 harness, in-cluster Job, prompt=512 / gen=128, 20 measured runs / phase):
 
 | Concurrency | Aggregate decode t/s | p50 latency | p99 latency | Per-req decode p50 |
@@ -85,13 +86,13 @@ cache (open carry-over).
 
 | Item | Action |
 |---|---|
-| `spark-2c24` page-cache reboot | Coordinated drain + reboot to release ~65 GiB pinned page cache, lift vLLM `gpu-memory-utilization` from 0.22 → ~0.85+. Logged in [`../storage-pain-journal.md`](../storage-pain-journal.md). See [`spark-reboot-runbook.md`](spark-reboot-runbook.md). |
+| `spark-2c24` page-cache reboot | Coordinated drain + reboot to release ~65 GiB pinned page cache, lift vLLM `gpu-memory-utilization` from 0.22 → ~0.85+. Logged in [`../../JOURNAL.md`](../../JOURNAL.md). See [`../runbooks/spark-reboot.md`](../runbooks/spark-reboot.md). |
 | HF Hub direct pulls in pods | Plan (§First-Party Microsoft Story) requires mirroring to ACR / Azure Blob origin before Wave 5. Wave-2 work. |
 | Azure Workload Identity, Container Insights, Front Door | All "planned" per plan; not Wave 1 blockers. |
 
 ## Reproducibility
 
-Every item ships behind a `make` target — see [`../Makefile`](../Makefile)
+Every item ships behind a `make` target — see [`../../Makefile`](../../Makefile)
 or `make help`. From a clean cluster + the right `LAB_HOST`:
 
 ```sh
@@ -108,12 +109,12 @@ make w1.6-run-vllm   # actual benchmark run
 
 | Path | Wave | Contents |
 |---|---|---|
-| [`../inference/ollama-qwen-moe/`](../inference/ollama-qwen-moe/) | W1.1 | Ollama StatefulSet + Service + Ingress |
-| [`../inference/vllm-qwen-moe/`](../inference/vllm-qwen-moe/) | W1.2 | vLLM StatefulSet (2 containers) + MoE tuning ConfigMap + proxy ConfigMap |
-| [`../inference/openwebui/`](../inference/openwebui/) | bonus | Open WebUI Deployment + multi-backend connection JSON |
-| [`../inference/ingress/`](../inference/ingress/) | W1.4 | Two Ingress objects (per-namespace), basic-auth Secret generator, kustomize host-literal |
-| [`../observability/`](../observability/) | W1.5 | Helm values for kube-prometheus-stack + DCGM + initial Grafana dashboard ConfigMap |
-| [`../bench/`](../bench/) | W1.6 | Harness + Job manifests + first results |
-| [`../docs/`](../docs/) | all | This page + sanity write-ups + transfer review + architecture |
-| [`../storage-pain-journal.md`](../storage-pain-journal.md) | all | Append-only measurements |
-| [`../sponsor-updates/`](../sponsor-updates/) | all | Monthly written updates |
+| [`../../inference/ollama-qwen-moe/`](../../inference/ollama-qwen-moe/) | W1.1 | Ollama StatefulSet + Service + Ingress |
+| [`../../inference/vllm-qwen-moe/`](../../inference/vllm-qwen-moe/) | W1.2 | vLLM StatefulSet (2 containers) + MoE tuning ConfigMap + proxy ConfigMap |
+| [`../../inference/openwebui/`](../../inference/openwebui/) | bonus | Open WebUI Deployment + multi-backend connection JSON |
+| [`../../inference/ingress/`](../../inference/ingress/) | W1.4 | Two Ingress objects (per-namespace), basic-auth Secret generator, kustomize host-literal |
+| [`../../observability/`](../../observability/) | W1.5 | Helm values for kube-prometheus-stack + DCGM + initial Grafana dashboard ConfigMap |
+| [`../../bench/`](../../bench/) | W1.6 | Harness + Job manifests + first results |
+| [`../../docs/`](../../docs/) | all | This page + sanity write-ups + transfer review + architecture |
+| [`../../JOURNAL.md`](../../JOURNAL.md) | all | Append-only measurements |
+| [`../../sponsor-updates/`](../../sponsor-updates/) | all | Monthly written updates |
