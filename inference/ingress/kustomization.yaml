@@ -33,6 +33,6 @@ configMapGenerator:
       # Reuses the Open WebUI public hostname so all lab traffic shares one
       # cert, one DNS record, one auth pattern. See README.md for why this
       # is the same hostname rather than a separate FQDN.
-      - host=vapa-ollama.canadacentral.cloudapp.azure.com
+      - host=foo.bar.com
 generatorOptions:
   disableNameSuffixHash: true

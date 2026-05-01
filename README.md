@@ -27,19 +27,19 @@ Wave 1 closed on 2026-04-30. Single AKS cluster, two Sparks in Region A,
 one public hostname:
 
 ```mermaid
-flowchart TB
+graph TB
     user([User browser])
 
-    subgraph azure["Azure — Canada Central"]
-        dns["Azure DNS<br/>vapa-ollama.canadacentral.cloudapp.azure.com"]
-        lb["nginx-ingress LB<br/>20.48.249.187<br/>TLS via cert-manager (Let's Encrypt)"]
+    subgraph azure["Azure - Canada Central"]
+        dns["Azure DNS<br/>foo.bar.com"]
+        lb["nginx-ingress LB 10.0.X.X<br/>TLS via cert-manager"]
 
-        subgraph aks["AKS control plane + amd64 pools"]
+        subgraph aks["AKS control plane plus amd64 pools"]
             subgraph ns_ingress["ns: lab-ingress"]
                 ing["Ingress rules<br/>basic-auth"]
             end
             subgraph ns_owui["ns: lab-openwebui"]
-                owui["Open WebUI<br/>Deployment + 10Gi PVC"]
+                owui["Open WebUI<br/>Deployment plus 10Gi PVC"]
             end
             subgraph ns_obs["ns: lab-observability"]
                 prom["Prometheus"]
@@ -52,39 +52,41 @@ flowchart TB
         end
     end
 
-    subgraph regiona["Region A — behind NAT, joined via unbounded-agent + WireGuard"]
-        subgraph spark3d37["spark-3d37 — DGX Spark GB10 (arm64, 119 GiB unified)"]
+    subgraph regiona["Boulder Lab - behind NAT, joined via unbounded-agent and WireGuard"]
+        subgraph spark3d37["spark-3d37 - DGX Spark GB10 arm64, 119 GiB unified"]
             subgraph ns_ollama["ns: lab-ollama-qwen-moe"]
-                ollama["ollama-0 (StatefulSet)<br/>Qwen3-30B-A3B GGUF Q4_K_M<br/>~18.6 GB / 60Gi PVC"]
+                ollama["ollama-0 StatefulSet<br/>Qwen3-30B-A3B GGUF Q4_K_M<br/>~18.6 GB on 60Gi PVC"]
             end
             dcgm1["dcgm-exporter"]
         end
-        subgraph spark2c24["spark-2c24 — DGX Spark GB10 (arm64, 119 GiB unified)"]
+        subgraph spark2c24["spark-2c24 - DGX Spark GB10 arm64, 119 GiB unified"]
             subgraph ns_vllm["ns: lab-vllm-qwen-moe"]
-                vllm["vllm-0 (StatefulSet)<br/>vllm container :8000<br/>Qwen3-30B-A3B-GPTQ-Int4 (~16 GB)<br/>gpu-mem-util=0.22"]
+                vllm["vllm-0 StatefulSet<br/>vllm container :8000<br/>Qwen3-30B-A3B-GPTQ-Int4 ~16 GB<br/>gpu-mem-util=0.22"]
                 shim["proxy sidecar :11434<br/>Ollama-compat shim"]
             end
             dcgm2["dcgm-exporter"]
         end
     end
 
-    user -->|HTTPS| dns --> lb --> ing
-    ing -->|/| owui
-    ing -->|/lab-api/ollama/| ollama
-    ing -->|/lab-api/vllm/| vllm
-    ing -->|/lab-api/vllm-ollama/| shim
+    user -- HTTPS --> dns
+    dns --> lb
+    lb --> ing
+    ing -- root --> owui
+    ing -- lab-api/ollama --> ollama
+    ing -- lab-api/vllm --> vllm
+    ing -- lab-api/vllm-ollama --> shim
     shim --> vllm
 
-    owui -.chat backend.-> ollama
-    owui -.chat backend.-> vllm
+    owui -. chat backend .-> ollama
+    owui -. chat backend .-> vllm
 
-    bench -.measured load.-> vllm
-    bench -.measured load.-> ollama
+    bench -. measured load .-> vllm
+    bench -. measured load .-> ollama
 
-    prom -.scrape.-> dcgm1
-    prom -.scrape.-> dcgm2
-    prom -.scrape.-> vllm
-    prom -.scrape.-> ollama
+    prom -. scrape .-> dcgm1
+    prom -. scrape .-> dcgm2
+    prom -. scrape .-> vllm
+    prom -. scrape .-> ollama
     graf --> prom
 
     classDef edge fill:#1f3a5f,stroke:#4a90e2,color:#fff
@@ -94,7 +96,7 @@ flowchart TB
 ```
 
 
-| Path on `vapa-ollama.canadacentral.cloudapp.azure.com` | Backend                        | Auth                    |
+| Path on `foo.bar.com` | Backend                        | Auth                    |
 |--------------------------------------------------------|--------------------------------|-------------------------|
 | `/`                                                    | Open WebUI (chat front-end)    | Open WebUI session login |
 | `/lab-api/ollama/`                                     | Ollama on `spark-3d37`         | basic-auth              |

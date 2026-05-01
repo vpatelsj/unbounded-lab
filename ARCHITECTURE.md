@@ -110,7 +110,7 @@ Alluxio/Fluid/etc. to hide it.
 
 ## Ingress + auth pattern
 
-One public hostname (`vapa-ollama.canadacentral.cloudapp.azure.com` on
+One public hostname (`foo.bar.com` on
 the live cluster), four exposed paths:
 
 | Path                       | Backend                                                 | Auth                  |

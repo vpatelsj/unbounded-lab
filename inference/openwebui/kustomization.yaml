@@ -33,6 +33,6 @@ configMapGenerator:
       # ingress LB IP). The kustomize `replacements:` block above patches
       # this value into ingress.yaml's spec.tls[0].hosts[0] and
       # spec.rules[0].host at apply time.
-      - host=vapa-ollama.canadacentral.cloudapp.azure.com
+      - host=foo.bar.com
 generatorOptions:
   disableNameSuffixHash: true

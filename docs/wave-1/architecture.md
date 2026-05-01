@@ -11,11 +11,11 @@ two DGX Sparks (Region A) running Qwen3-30B-A3B behind a public Open WebUI.
 
 ```mermaid
 flowchart LR
-  user([User browser]) -->|HTTPS| afd[Azure DNS / public IP<br/>vapa-ollama.canadacentral.cloudapp.azure.com]
+  user([User browser]) -->|HTTPS| afd[Azure DNS / public IP<br/>foo.bar.com]
 
   subgraph aks["AKS \u2014 Canada Central (apollo-lab-bou-gw)"]
     direction TB
-    afd --> lb[Azure LB<br/>20.48.249.187]
+    afd --> lb[Azure LB<br/>10.X.X.X]
           ing[ingress-nginx<br/>cert-manager letsencrypt-prod]
 
     subgraph sys["system pool (amd64, 2 nodes)"]
