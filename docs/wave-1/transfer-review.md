@@ -1,8 +1,8 @@
 # Wave 1 transfer review
 
-Per `plan.md` \u00a7"Per-wave transfer review checklist": for every shipped
-item, what would a Wave-2 GB200/GB300 transplant cost? Filled in at Wave 1
-close.
+Per [ROADMAP.md](../../ROADMAP.md) §"Per-wave transfer review checklist":
+for every shipped item, what would a Wave-2 GB200/GB300 transplant cost?
+Filled in at Wave 1 close.
 
 | Item   | Transplants as-is? | Changes needed                                                                                     | Re-test required                                    |
 |--------|--------------------|----------------------------------------------------------------------------------------------------|------------------------------------------------------|

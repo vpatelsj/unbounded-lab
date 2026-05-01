@@ -1,6 +1,6 @@
-# W1.2 - vLLM serving Qwen MoE on spark-2c24
+# W1.2 — vLLM serving Qwen MoE on spark-2c24
 
-Wave item: **W1.2** (see [`../../plan.md`](../../plan.md)).
+Wave item: **W1.2** (see [ROADMAP.md](../../ROADMAP.md)).
 
 Model: [`Qwen/Qwen3-30B-A3B`](https://huggingface.co/Qwen/Qwen3-30B-A3B) — Apache-2.0
 (Alibaba Cloud). Served here as the GPTQ-Int4 quantization via vLLM 0.11.0.
@@ -12,24 +12,6 @@ deployment (`Qwen/Qwen3-30B-A3B`) but at a **different quantization**
 (GPTQ-Int4 safetensors ~17 GB vs Ollama's GGUF Q4_K_M ~18.6 GB) — this
 asymmetry is exactly the dedup-pain W1.3 measures.
 
-> **Plan deviation — model variant.** The plan calls for BF16 (~60 GB).
-> Two compounding GB10 realities forced the variant choice:
->
-> 1. **Memory pressure.** A freshly-attached spark-2c24 has ~65 GiB of host
->    page cache pinning unified memory; DGX OS keeps `/proc/sys/vm/drop_caches`
->    read-only even from a privileged pod via `nsenter`. Until the node is
->    rebooted, BF16 will not fit.
-> 2. **vLLM v0.11 + sm_121a.** GB10 reports compute capability `sm_121a`.
->    vLLM v0.11's prebuilt CUTLASS scaled-mm kernel (the FP8 path) targets
->    sm_80/89/90/100 only — `cutlass_scaled_mm` raises bare
->    `RuntimeError: Error Internal` during `profile_run` on FP8 weights.
->    GPTQ-Int4 dispatches to Marlin instead, which works.
->
-> The full deviation chain (BF16 → FP8 → GPTQ-Int4) is captured in
-> [`../../storage-pain-journal.md`](../../storage-pain-journal.md). Revisit
-> when (a) Spark is rebooted clean, and/or (b) vLLM ships GB10-aware
-> CUTLASS / FlashInfer kernels.
-
 **No public Ingress.** Cluster-internal only. Open WebUI talks to vLLM via
 two service ports:
 
@@ -39,7 +21,7 @@ two service ports:
   clients (including the W1.1 measurement runbook) work against vLLM
   unchanged. Public-API ingress with shared auth/TLS is W1.4's job.
 
-## What it proves
+## What this proves
 
 - vLLM runs on ARM64 + GB10 (sm_121a) under the `nvidia` RuntimeClass on a
   Spark joined to AKS via unbounded-agent.
@@ -47,7 +29,7 @@ two service ports:
   PVC-on-local-path pattern, same RuntimeClass as W1.1 — multiple inference
   engines coexist on one platform with one set of conventions.
 - The MoE Triton kernel tuning surface is wired: `VLLM_TUNED_CONFIG_FOLDER`
-  -> ConfigMap. The actual GB10-tuned JSON is a TODO documented inline (see
+  → ConfigMap. The actual GB10-tuned JSON is a TODO documented inline (see
   [`configmap-tuning.yaml`](configmap-tuning.yaml)) and is the
   Spark-specific learning artifact called out in the GB200/GB300 transfer
   plan.
@@ -73,15 +55,17 @@ two service ports:
 |---|---|
 | `namespace.yaml` | `lab-vllm-qwen-moe` namespace |
 | `configmap-tuning.yaml` | `VLLM_TUNED_CONFIG_FOLDER` contents (placeholder JSON, see file) |
-| `configmap-proxy.yaml` | Stdlib-only Python proxy: Ollama API -> vLLM OpenAI API |
+| `configmap-proxy.yaml` | Stdlib-only Python proxy: Ollama API → vLLM OpenAI API |
 | `statefulset.yaml` | Single-replica StatefulSet pinned to `spark-2c24`, vllm + proxy sidecar |
 | `service.yaml` | ClusterIP `vllm` (ports 8000+11434) and headless `vllm-headless` |
 | `kustomization.yaml` | Bundles everything |
 
-## Deploy
+## Deploy, status, teardown
 
 ```sh
-make w1.2-vllm-up
+make w1.2-vllm-up        # idempotent
+make w1.2-vllm-status
+make w1.2-vllm-down      # PVC is deleted with the namespace; redeploying triggers a fresh ~17 GB safetensors pull (the W1.3 cold-start event)
 ```
 
 Equivalent manual flow:
@@ -104,7 +88,7 @@ kubectl -n lab-vllm-qwen-moe create secret generic hf-token \
 
 (The env var is wired with `optional: true`; the secret can be absent.)
 
-## Reaching the API
+## API access
 
 In-cluster (default consumer pattern):
 
@@ -149,25 +133,10 @@ curl -sS http://localhost:11434/api/generate \
 >   -sS http://vllm.lab-vllm-qwen-moe.svc:8000/v1/models
 > ```
 
-## Status
-
-```sh
-make w1.2-vllm-status
-```
-
-## Teardown
-
-```sh
-make w1.2-vllm-down
-# The PVC is deleted with the namespace. Re-deploying triggers a fresh ~17 GB
-# safetensors pull — that is the W1.3 cold-start measurement event.
-```
-
-## Pain measurement runbook (W1.3, vLLM half)
+## Pain runbook
 
 Pair these with the Ollama numbers already in
-[`../../storage-pain-journal.md`](../../storage-pain-journal.md). All
-measurements run on `spark-2c24`.
+[JOURNAL.md](../../JOURNAL.md). All measurements run on `spark-2c24`.
 
 1. **Cold pull origin egress (Qwen3-30B-A3B-GPTQ-Int4).** Tear down and
    redeploy:
@@ -182,11 +151,11 @@ measurements run on `spark-2c24`.
    ```
    Compare with W1.1's 18.557 GB. The delta is the "same model, two
    engines, two quantizations" duplicate-bytes-on-disk story.
-2. **Cold pull wall time -> first inference.** Time from `make w1.2-vllm-up`
+2. **Cold pull wall time → first inference.** Time from `make w1.2-vllm-up`
    to the first non-error reply on `/v1/chat/completions`. Record the
    pod-Ready gap, the safetensors-download gap, and the model-load-into-GPU
    gap separately; vLLM logs all three.
-3. **Warm-PVC pod restart -> first inference reply.** `kubectl -n
+3. **Warm-PVC pod restart → first inference reply.** `kubectl -n
    lab-vllm-qwen-moe delete pod vllm-0`; weights survive on the PVC; measure
    pod-Ready and first reply.
 4. **Disk footprint after pull.** From a privileged debug pod on
@@ -195,17 +164,34 @@ measurements run on `spark-2c24`.
    kubectl debug node/spark-2c24 -it --image=alpine \
      -- du -sh /host/opt/local-path-provisioner
    ```
-5. **Sustainable batch x context x prompt throughput.** Run the W1.6
+5. **Sustainable batch × context × prompt throughput.** Run the W1.6
    benchmark harness against `vllm:8000`. Numbers land in
-   [`../../docs/w1.2-vllm-sanity.md`](../../docs/w1.2-vllm-sanity.md), per the
-   plan's W1.2 sanity-check requirement.
+   [docs/wave-1/w1.2-vllm-sanity.md](../../docs/wave-1/w1.2-vllm-sanity.md),
+   per the roadmap's W1.2 sanity-check requirement.
 
-## MoE Triton kernel tuning (Spark-specific learning artifact)
+## Plan deviations
 
-The placeholder JSON in [`configmap-tuning.yaml`](configmap-tuning.yaml) is
-intentionally empty. Generate the real one **on `spark-2c24`** with
-vLLM's tuning script (inside the running container or an equivalent
-ad-hoc pod):
+**Model variant.** The roadmap calls for BF16 (~60 GB). Two compounding
+GB10 realities forced the variant choice:
+
+1. **Memory pressure.** A freshly-attached spark-2c24 has ~65 GiB of host
+   page cache pinning unified memory; DGX OS keeps `/proc/sys/vm/drop_caches`
+   read-only even from a privileged pod via `nsenter`. Until the node is
+   rebooted, BF16 will not fit.
+2. **vLLM v0.11 + sm_121a.** GB10 reports compute capability `sm_121a`.
+   vLLM v0.11's prebuilt CUTLASS scaled-mm kernel (the FP8 path) targets
+   sm_80/89/90/100 only — `cutlass_scaled_mm` raises bare
+   `RuntimeError: Error Internal` during `profile_run` on FP8 weights.
+   GPTQ-Int4 dispatches to Marlin instead, which works.
+
+The full deviation chain (BF16 → FP8 → GPTQ-Int4) is captured in
+[JOURNAL.md](../../JOURNAL.md). Revisit when (a) Spark is rebooted clean,
+and/or (b) vLLM ships GB10-aware CUTLASS / FlashInfer kernels.
+
+**Tuning JSON is a placeholder.** The MoE Triton kernel tuning JSON in
+[`configmap-tuning.yaml`](configmap-tuning.yaml) is intentionally empty;
+generate the real one **on `spark-2c24`** with vLLM's tuning script
+(inside the running container or an equivalent ad-hoc pod):
 
 ```sh
 python -m vllm.model_executor.layers.fused_moe.tuning \
@@ -214,17 +200,32 @@ python -m vllm.model_executor.layers.fused_moe.tuning \
 
 The script writes `E=<experts>,N=<intermediate>,device_name=NVIDIA_GB10.json`
 into the local cache. Copy that file's contents into the ConfigMap (replace
-`{}` and rename the key if E/N differ from the placeholder), redeploy, then
-re-run W1.6 benchmarks to quantify the lift.
+`{}` and rename the key if E/N differ from the placeholder), redeploy,
+then re-run W1.6 benchmarks to quantify the lift.
 
-This file is **hardware-specific** and will need a re-tune on
-GB200/GB300 — see the GB200 / GB300 Transfer Plan section of `plan.md`.
+## GB200 / GB300 carry-over
+
+Per [docs/wave-1/transfer-review.md](../../docs/wave-1/transfer-review.md):
+partly transplants. Drop the GB10 MoE tuning ConfigMap (it's
+hardware-specific and will need a re-tune); raise
+`--gpu-memory-utilization` (GB200 has 192 GB HBM, no host page-cache
+contention); pick a fresh quant (FP8 viable on GB200 with sm_100). Re-run
+the full W1.6 sweep and re-measure KV pool size + p50/p95 in
+[docs/wave-1/w1.2-vllm-sanity.md](../../docs/wave-1/w1.2-vllm-sanity.md)'s
+successor.
+
+The four GB10 + vLLM-v0.11 incompatibilities listed above all relax on
+GB200: `--enforce-eager` can come off (PTXAS targets sm_100), CUTLASS
+scaled-mm is a supported path, FlashInfer's TopK sampler is available,
+and the `enableServiceLinks: false` workaround is still valid (k8s
+Service-name collision, not hardware-specific).
 
 ## Known limitations
 
 - **Single replica, single GPU.** No HA. Replacing the node loses the PVC.
-- **No public ingress, no auth.** Cluster-internal only. W1.4 will introduce
-  the shared public-API ingress + auth proxy pattern.
+- **No public ingress, no auth.** Cluster-internal only. W1.4 introduced
+  the shared public-API ingress + auth proxy pattern (see
+  [../ingress/](../ingress/)).
 - **Ollama-compat shim is intentionally minimal.** Implements only the
   routes Open WebUI and the W1.1 runbook actually call (`/api/version`,
   `/api/tags`, `/api/show`, `/api/chat`, `/api/generate`, no-op `/api/pull`).

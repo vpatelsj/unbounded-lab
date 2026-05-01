@@ -4,6 +4,9 @@ A 10-minute live walkthrough hitting every W1.x deliverable. Run from the
 repo root with kubeconfig pointed at `apollo-lab-bou-gw`. Names match the
 actual cluster (verified 2026-04-30).
 
+> **Frozen.** This script captures the Wave 1 close-out demo. Future
+> wave demos live alongside their own wave folder.
+
 | Component        | Namespace             | Pod / target                              | Service                                      |
 |------------------|-----------------------|-------------------------------------------|----------------------------------------------|
 | Ollama           | `lab-ollama-qwen-moe` | `ollama-0`                                | `ollama` :11434                              |
@@ -96,7 +99,7 @@ the bridge to the next step.
 ## 4. W1.3 — Storage pain receipts (30 s)
 
 ```bash
-sed -n '1,40p' storage-pain-journal.md
+sed -n '1,40p' JOURNAL.md
 ```
 
 Three real rows:
@@ -108,7 +111,7 @@ Three real rows:
 Reboot runbook ready:
 
 ```bash
-ls docs/spark-reboot-runbook.md
+ls docs/runbooks/spark-reboot.md
 ```
 
 ---
@@ -130,7 +133,7 @@ Open http://localhost:3000 → log in → dashboard **"Spark GPU + vLLM"**:
 - GPU power (`DCGM_FI_DEV_POWER_USAGE`) — flat ~32 W idle, jumps to ~36 W
   under bench load. (DCGM on Spark Tegra silently omits `FB_USED`, so
   power is the "GPU was busy" signal here. See
-  [observability/values-dcgm-exporter.yaml](../observability/values-dcgm-exporter.yaml).)
+  [observability/values-dcgm-exporter.yaml](../../observability/values-dcgm-exporter.yaml).)
 - GPU util, mem-copy util, SM clock per Spark.
 - vLLM `/metrics`: running requests, tokens/s, KV cache usage.
 
@@ -207,7 +210,7 @@ concurrency stops buying throughput. The `meta` block records harness
 git SHA + engine version + GPU UUIDs in the same JSON, so any number we
 publish is fully self-describing.
 
-Carry-overs to W2.0 Bench v3 (in [plan.md](../plan.md)): open-loop
+Carry-overs to W2.0 Bench v3 (in [ROADMAP.md](../../ROADMAP.md)): open-loop
 goodput-at-SLO, multiple workload shapes (short-chat vs long-context),
 driver / `nvidia-smi -q` capture from the GPU node, optional swap to
 MLPerf for published numbers.
@@ -220,23 +223,23 @@ MLPerf for published numbers.
 ls docs/ sponsor-updates/ GLOSSARY.md
 ```
 
-- [docs/architecture-wave-1.md](architecture-wave-1.md) — mermaid + the
+- [docs/wave-1/architecture.md](architecture.md) — mermaid + the
   first-party Microsoft surfaces table.
-- [docs/wave-1-state.md](wave-1-state.md) — endpoints, PVCs, headline
+- [docs/wave-1/state.md](state.md) — endpoints, PVCs, headline
   numbers.
-- [docs/wave-1-transfer-review.md](wave-1-transfer-review.md) — per-item
+- [docs/wave-1/transfer-review.md](transfer-review.md) — per-item
   GB200/GB300 transplant cost.
-- [docs/spark-reboot-runbook.md](spark-reboot-runbook.md) — operational
+- [docs/runbooks/spark-reboot.md](../runbooks/spark-reboot.md) — operational
   playbook for the 65 GiB page-cache problem.
-- [GLOSSARY.md](../GLOSSARY.md) — names / labels / regions canon.
-- [sponsor-updates/2026-04.md](../sponsor-updates/2026-04.md) — Wave 1
+- [GLOSSARY.md](../../GLOSSARY.md) — names / labels / regions canon.
+- [sponsor-updates/2026-04.md](../../sponsor-updates/2026-04.md) — Wave 1
   closer.
 
 ---
 
 ## 8. Wave 2 preview (30 s)
 
-Open [docs/wave-1-transfer-review.md](wave-1-transfer-review.md) and walk
+Open [docs/wave-1/transfer-review.md](transfer-review.md) and walk
 the table. Short version: ingress, observability, Open WebUI, and the
 bench harness all transplant cleanly to GB200; vLLM picks up FP8 + the
 GB10 MoE tuning ConfigMap goes away; DCGM starts exporting `FB_USED` for

@@ -1,88 +1,59 @@
 # unbounded-lab
 
 AI showcase running on top of [unbounded-kube](https://github.com/microsoft/unbounded-kube).
-See [`plan.md`](plan.md) for the sponsor-facing plan and wave structure.
+DGX Spark today, designed to transplant onto GB200/GB300 tomorrow.
 
-## Hard rule
+## Start here
 
-- The `deploy/` tree in `unbounded-kube` is for unbounded-kube *component*
-  manifests (machina, net, inventory) rendered via `make *-manifests`.
-- This repo is for *AI workloads* running on top of unbounded-kube.
+| Doc                                | Read it for                                                |
+|------------------------------------|------------------------------------------------------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | wave-agnostic topology, conventions, hard rules            |
+| [STATE.md](STATE.md)               | what's actually deployed right now                         |
+| [ROADMAP.md](ROADMAP.md)           | strategy, wave structure, GB200/GB300 transfer plan        |
+| [GLOSSARY.md](GLOSSARY.md)         | canonical model / namespace / label names (source of truth) |
+| [JOURNAL.md](JOURNAL.md)           | append-only storage-pain measurements (internal)           |
 
-The two never mix.
+Per-wave history lives under [docs/wave-N/](docs/wave-1/). Operational
+playbooks live under [docs/runbooks/](docs/runbooks/). Monthly executive
+notes live under [sponsor-updates/](sponsor-updates/).
 
 ## Layout
 
-| Path | Wave items | What it is |
-|---|---|---|
-| [`inference/ollama-qwen-moe/`](inference/ollama-qwen-moe/) | W1.1 | Ollama serving Qwen MoE on spark-3d37 |
-| [`inference/vllm-qwen-moe/`](inference/vllm-qwen-moe/) | W1.2 | vLLM serving Qwen MoE on spark-2c24 |
-| [`inference/sglang-dense/`](inference/sglang-dense/) | W2.4 | SGLang third-engine pick |
-| [`inference/vllm-vision/`](inference/vllm-vision/) | W2.6 | Multimodal vLLM |
-| [`inference/vllm-tp2/`](inference/vllm-tp2/) | W3.1 | Two-Spark TP=2 vLLM via KubeRay or LWS |
-| [`models/ollama-dense/`](models/ollama-dense/) | W2.5 | Dense chat model |
-| [`models/whisper/`](models/whisper/) or [`models/reranker/`](models/reranker/) | W2.8 | Small specialized model |
-| [`rag/`](rag/) | W2.7 | Embedding + ChromaDB + LLM |
-| [`training/lora-job/`](training/lora-job/) | W2.2 | LoRA fine-tune as a Job |
-| [`training/megatron-single/`](training/megatron-single/) | W2.1 / R1 | Megatron single-node |
-| [`training/megatron-multinode/`](training/megatron-multinode/) | W3.2 | Megatron multi-node |
-| [`training/eval-harness/`](training/eval-harness/) | W2.3 | lm-evaluation-harness |
-| [`training/continuous-pretrain/`](training/continuous-pretrain/) | W4.1 | Continuous pre-training |
-| [`training/scalarlm/`](training/scalarlm/) | W3.4 / W3.5 | ScalarLM, gated by R3 |
-| [`observability/`](observability/) | W1.5 | Prometheus + Grafana + DCGM exporter |
-| [`ingress/`](ingress/) | W1.4 | Shared ingress + auth + TLS pattern |
-| [`geo/`](geo/) | Wave 5 | Front Door, regional routing, FL |
-| [`bench/`](bench/) | W1.6 | Repeatable benchmark harness |
-| [`docs/`](docs/) | W1.2+ | Per-wave write-ups (e.g. W1.2 vLLM sanity check) |
-| [`storage-pain-journal.md`](storage-pain-journal.md) | all waves | Append-only measurements |
-| [`sponsor-updates/`](sponsor-updates/) | all waves | YYYY-MM.md monthly updates |
+| Path                                                            | Wave items   | What it is                                                |
+|-----------------------------------------------------------------|--------------|-----------------------------------------------------------|
+| [inference/ollama-qwen-moe/](inference/ollama-qwen-moe/)        | W1.1         | Ollama serving Qwen MoE on spark-3d37                     |
+| [inference/vllm-qwen-moe/](inference/vllm-qwen-moe/)            | W1.2         | vLLM serving Qwen MoE on spark-2c24                       |
+| [inference/openwebui/](inference/openwebui/)                    | bonus / W1.1 | Open WebUI chat front-end (multi-backend)                 |
+| [inference/ingress/](inference/ingress/)                        | W1.4         | Shared ingress + basic-auth + TLS pattern                 |
+| [inference/sglang-dense/](inference/sglang-dense/)              | W2.4         | SGLang third-engine pick                                  |
+| [inference/vllm-vision/](inference/vllm-vision/)                | W2.6         | Multimodal vLLM                                           |
+| [inference/vllm-tp2/](inference/vllm-tp2/)                      | W3.1         | Two-Spark TP=2 vLLM via KubeRay or LWS                    |
+| [models/](models/)                                              | W2.5 / W2.8  | Dense chat, whisper, reranker, etc.                       |
+| [rag/](rag/)                                                    | W2.7         | Embedding + ChromaDB + LLM                                |
+| [training/](training/)                                          | W2 / W3 / W4 | LoRA, Megatron, eval-harness, continuous pretrain, ScalarLM |
+| [observability/](observability/)                                | W1.5         | kube-prometheus-stack + DCGM exporter + Grafana dashboards |
+| [bench/](bench/)                                                | W1.6 / W1.7  | Repeatable benchmark harness + JSON results               |
+| [foundation/](foundation/)                                      | all          | One-shot bootstrap scripts (node labels, repros)          |
+| [geo/](geo/)                                                    | Wave 5       | Front Door, regional routing, FL                          |
+| [docs/runbooks/](docs/runbooks/)                                | all          | Operational playbooks (e.g. spark-reboot)                 |
+| [docs/wave-1/](docs/wave-1/)                                    | W1.x         | Frozen Wave 1 snapshot (architecture, demo, sanity, transfer review) |
+| [sponsor-updates/](sponsor-updates/)                            | all          | Monthly executive updates (`YYYY-MM.md`)                  |
 
-## Per-item conventions
+Each `<area>/<item>/` directory is a self-contained kustomize bundle plus
+a `README.md`. See [ARCHITECTURE.md](ARCHITECTURE.md) for the four hard
+rules (deploy/ vs. workloads, per-item conventions, canonical names, no
+third-party object stores) and the `LAB_HOST` override mechanism for
+public ingresses.
 
-Each `<area>/<item>/` directory contains:
+## Make targets
 
-- `README.md` - what it deploys, what it proves, deploy + teardown commands.
-  Model license + provenance info goes in the README's intro for any item
-  shipping or running model weights.
-- Plain YAML manifests or a `kustomization.yaml`. Templating is allowed when reused.
-
-## Cluster state at Wave 1 start
-
-The `plan.md` Hardware Inventory section refers to `qwen35-35b` and `qwen36-35b`
-namespaces as "currently running." On the live cluster those namespaces do not
-exist; W1.1 and W1.2 are deployed greenfield directly into the new
-`lab-ollama-qwen-moe` and `lab-vllm-qwen-moe` namespaces. The "grandfathering"
-rule in the plan's Glossary therefore is a no-op for this cluster.
-
-## Region A node labels
-
-Wave 1 sets these labels on the Region A Sparks (idempotent):
-
-```
-lab.unbounded.cloud/region=a
-lab.unbounded.cloud/hardware-class=dgx-spark-gb10
-```
-
-Apply via [`foundation/label-region-a.sh`](foundation/label-region-a.sh).
-
-## Public hostname (`LAB_HOST`)
-
-W1.1 ingresses (Ollama, Open WebUI) read their public hostname from a tiny
-`configMapGenerator` in each `kustomization.yaml`. The committed defaults
-are placeholders (`ollama.lab.example.com`, `chat.lab.example.com`) so the
-repo carries no environment-specific names.
-
-Override on the command line, do not commit the literal:
+`make help` lists every wave-numbered target. Common entry points:
 
 ```sh
-make LAB_HOST=mychat.example.com w1.1-up
+make w1.1-up         # Ollama + Open WebUI
+make w1.2-up         # vLLM
+make w1.4-up         # shared ingress
+make w1.5-up         # observability
+make w1.6-run-vllm   # measured benchmark run (~3 min)
+make w1.7-run-vllm   # wider sweep with TTFT/TPOT (~25 min)
 ```
-
-The Make target backs up the Open WebUI `kustomization.yaml`, runs a sed
-over the `host=` literal, applies, and restores the file (even on Ctrl-C).
-If `LAB_HOST` is not set the targets print a warning and apply with the
-placeholder; this is fine for local-dry-run kustomize testing but will not
-produce a working public endpoint.
-
-Only Open WebUI has a public ingress in W1.1. Ollama is cluster-internal
-(W1.4 introduces the shared public-API ingress + auth proxy).
