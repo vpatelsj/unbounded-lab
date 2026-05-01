@@ -489,6 +489,58 @@ stable baseline to measure the Storage Pain Journal against.
   - Used as part of the W1.2 vLLM sanity check to measure actual sustainable
     batch x context x prompt throughput; results land in `docs/`.
   - Deliverable: `lab/bench/` + one JSON results file from the W1.2 run.
+- **W1.7 - Bench harness v2**
+  - Extends the W1.6 harness with the cheap, high-value items missing from
+    a credible LLM-serving benchmark. Same single-file Python script
+    (`lab/bench/lab_bench.py`); schema bumps `unbounded-lab-bench/v1` ->
+    `unbounded-lab-bench/v2`. The W1.6 Job and its 3-min reproducibility
+    baseline keep working; W1.7 ships a wider sweep with streaming.
+  - Adds:
+    - **Streaming + TTFT / TPOT.** Both engine callers gain a streaming
+      path (OpenAI SSE for vLLM, NDJSON for Ollama). Per-phase summary
+      adds `ttft_s_p50/p95/p99` and `tpot_ms_p50/p95`. `--no-stream`
+      reproduces v1 behaviour.
+    - **Run metadata header.** Top-level `meta` block records harness
+      git SHA (env `LAB_BENCH_GIT_SHA`), engine version (one HTTP probe
+      to `/version` or `/api/version`), GPU enumeration via DCGM-exporter
+      labels (`Hostname`, `UUID`, `gpu`, `modelName`), bench-pod node
+      name (Downward API), bench-pod kernel.
+    - **Output validity + truncation.** Per-request: `truncated`
+      (`completion_tokens >= gen_len`), `output_chars`,
+      `output_valid_utf8`. Per-phase: `truncated_count`,
+      `min_output_chars`, `quality_warning` (true iff any successful
+      run is below `--min-completion-tokens`, any UTF-8 error, or any
+      failure).
+    - **n_repeats.** New `--repeats N` (default 1, back-compat). When
+      >1, the entire concurrency sweep runs N times; JSON gains
+      `repeats: [...]` and a top-level `aggregate.by_concurrency` block
+      with per-c min/median/max of the headline metrics.
+    - **Wider sweep + knee detection.** Default sweep is c=1,2,4,8,16,
+      32,48,64. Top-level `knee_concurrency` + `knee_reason`
+      (`throughput_plateau` | `per_request_collapse` | null). Knee
+      thresholds exposed via `--knee-plateau-ratio` (default 1.05) and
+      `--knee-collapse-ratio` (default 0.5).
+  - Deliverable: `bench/job-vllm-w1.7-sweep.yaml` + new `make`
+    targets (`w1.7-run-vllm`, `w1.7-results-fetch`, `w1.7-show`) +
+    one sweep JSON in `bench/results/lab-bench-vllm-w1-7.json` +
+    schema-v2 fields visible in [docs/wave-1-demo.md](docs/wave-1-demo.md)
+    section 6.1.
+  - **Carry-overs deferred to W2.0 Bench v3** (explicitly listed so they
+    are not lost):
+    - Open-loop / Poisson arrivals + `goodput@SLO` measurement (replaces
+      the closed-loop `ThreadPoolExecutor` with an arrival-driven
+      scheduler).
+    - Multiple workload shapes as named profiles: short-chat (256/128)
+      vs long-context (4k/512). Today the harness uses one fixed shape.
+    - Driver / firmware / `nvidia-smi -q` capture from the GPU node.
+      Requires a privileged sidecar on the Spark; deferred until
+      Workload Identity is in place.
+    - Optional swap of the published numbers to MLPerf Inference Server
+      or `vllm bench serve`, keeping our harness as the
+      regression-detector.
+    - Ollama parity for the W1.7 schema. Ollama at high concurrency
+      mostly queues; needs its own profile (max c~=2). Tracked but
+      doesn't block W1.7 close.
 
 **Definition of done:**
 - Namespace `lab-ollama-qwen-moe` and `lab-vllm-qwen-moe` can be destroyed and recreated
@@ -500,6 +552,11 @@ stable baseline to measure the Storage Pain Journal against.
   control plane - the spine artifact is real, source-controlled, and reproducible
 - Prometheus/Grafana dashboard live with GPU metrics from both Sparks
 - Benchmark harness landed in `lab/bench/` and used for the W1.2 sanity check
+- W1.7 wider sweep JSON exists at `bench/results/lab-bench-vllm-w1-7.json` with
+  `schema=unbounded-lab-bench/v2`, populated `meta.engine_version` and
+  `meta.harness_git_sha`, three `repeats`, and either a finite
+  `knee_concurrency` or an explicit `null` (a "GB10 didn't saturate at c=64"
+  finding is itself a result, but the field must be present and computed)
 - Wave 1 transfer-review checklist filled in (GB200/GB300 transferability per item)
 
 **Dependencies:** blocks all other waves. Solo engineer; no parallel work.
@@ -991,19 +1048,41 @@ Prefer Apache-2.0 / MIT models when there's a real choice.
 One-off curl numbers (e.g., "54.6 t/s on one prompt") are not credible performance data.
 We need a repeatable harness.
 
-**Benchmark script requirements:**
-- Lives in `lab/bench/`; source-controlled (per the Code Organization section)
-- Parameters: engine (ollama/vllm/sglang), endpoint URL, auth, model, prompt length,
-  generation length, concurrency, number of runs
-- Reports: p50/p95/p99 latency, tokens/sec, prompt eval rate, memory footprint at peak
-- Runs warm-up requests before measurement
-- Dumps JSON results for ingestion into a Grafana dashboard or doc
+**Benchmark script requirements (W1.7, schema `unbounded-lab-bench/v2`):**
+- Lives in `lab/bench/`; source-controlled (per the Code Organization section).
+- Parameters: engine (ollama / vllm-openai), endpoint URL, auth, model, prompt
+  length, generation length, concurrency sweep, runs/phase, warmup/phase,
+  repeats, streaming on/off, validity floor, knee thresholds.
+- Reports per phase:
+  - `aggregate_decode_tokens_per_s` (cluster-side throughput) and
+    `per_req_decode_tokens_per_s_p50/p95` (per-user UX throughput).
+  - End-to-end latency `p50/p95/p99` and mean.
+  - **TTFT** (`ttft_s_p50/p95/p99`) and **TPOT / inter-token latency**
+    (`tpot_ms_p50/p95`) when streaming. Non-streaming still works but
+    these fields are null.
+  - `peak_gpu_power_w` from Prometheus (DCGM `POWER_USAGE` on Spark
+    Tegra; flips back to `FB_USED` on GB200, see W1.6 transfer note).
+  - Validity: `truncated_count`, `min_output_chars`, `quality_warning`.
+- Reports per run JSON header (`meta` block):
+  - Harness git SHA, harness version, schema version.
+  - Engine version (probed at run start).
+  - GPU device list (hostname, UUID, index, model) via DCGM labels.
+  - Bench-pod node name, kernel.
+- Runs warmup requests before each phase; results discarded.
+- Supports `--repeats N`: full sweep runs N times, JSON gains
+  `repeats: [...]` and an `aggregate.by_concurrency` block with
+  per-concurrency min/median/max of the headline metrics.
+- Computes `knee_concurrency`: lowest concurrency where aggregate
+  throughput plateaus or per-request throughput collapses.
+- Dumps JSON results for ingestion into a Grafana dashboard or doc.
 
 **Methodology:**
-- Minimum 20 runs per config; drop first 3 as warm-up
-- Report ALL of: prompt length, generation length, concurrency, quant, engine version,
-  driver version, date - numbers without these are useless
-- Re-run baselines monthly; staleness kills credibility
+- Minimum **3 repeats** of the full sweep; report median, surface min/max.
+- Within a phase: 12-20 runs after 2-3 warmup runs.
+- Report ALL of: prompt length, generation length, concurrency, quant,
+  engine version, harness git SHA, GPU device list, date - numbers
+  without these are useless. The W1.7 `meta` block makes this automatic.
+- Re-run baselines monthly; staleness kills credibility.
 
 **Where the existing "54.6 t/s" number goes:**
 - Recorded with context in `docs/dgx-spark-inference-perf.md` with a date stamp

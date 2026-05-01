@@ -13,6 +13,7 @@ close.
 | W1.4 Ingress + TLS                  | Yes    | None. ClusterIssuer + ingress class are portable. Front Door (Wave 3) will sit in front. | Cert renewal + E2E HTTPS smoke.                      |
 | W1.5 Observability                  | Mostly | dcgm-exporter on GB200 actually exports `DCGM_FI_DEV_FB_USED` (Spark Tegra silently omits it). Bench harness can revert to FB query. | Confirm metric set via `/metrics` curl + dashboards. |
 | W1.6 Bench harness                  | Yes    | After GB200 dcgm reports FB, flip query back to `DCGM_FI_DEV_FB_USED` and rename JSON field. | Full sweep at GB200 concurrency frontier.            |
+| W1.7 Bench harness v2 (TTFT/TPOT, repeats, knee) | Yes | Bump `--concurrency` ceiling well past 64 on GB200; re-tune `--knee-plateau-ratio` once we have data. Driver/firmware capture lands in W2.0 (privileged sidecar with `nvidia-smi`). | Re-sweep at GB200 frontier; expect `knee_concurrency >= 64` and TTFT well below GB10 numbers. |
 
 ## Generic carry-overs
 

@@ -174,7 +174,43 @@ Expected (reproduced 2026-04-30):
 
 Talking points: linear-ish scale to c=16, p50 only edges up by ~37% for
 7× throughput, GB10 saturates near 36 W under load. Stdlib-only Python
-harness, schema `unbounded-lab-bench/v1`, runs in `python:3.12-slim`.
+harness, schema `unbounded-lab-bench/v2` (W1.7 upgrade is back-compat:
+when `--repeats 1` the JSON still carries a flat `phases[]` array with
+the v1 keys), runs in `python:3.12-slim`.
+
+---
+
+## 6.1 W1.7 — Bench harness v2 (optional, ~25 min)
+
+Skip in a 10-min demo; run the day before and walk the JSON. The same
+harness, extended with the things a credible LLM bench has to measure:
+streaming TTFT/TPOT, output validity, run metadata header, three repeats,
+knee detection. Schema bumps to `unbounded-lab-bench/v2`.
+
+```bash
+make w1.7-run-vllm           # c=1,2,4,8,16,32,48,64; repeats=3; ~25 min
+make w1.7-results-fetch
+make w1.7-show               # median row + knee_concurrency + meta
+```
+
+What's in the JSON header that wasn't in v1:
+
+```bash
+jq '{schema, knee_concurrency, knee_reason, \
+     meta: {harness_git_sha, engine_version, gpus: (.meta.gpus | length)}}' \
+  bench/results/lab-bench-vllm-w1-7.json
+```
+
+Talking points: TTFT shows the prefill cost separated from decode; TPOT
+is the "fluency-per-token" knob users feel; the knee is where adding
+concurrency stops buying throughput. The `meta` block records harness
+git SHA + engine version + GPU UUIDs in the same JSON, so any number we
+publish is fully self-describing.
+
+Carry-overs to W2.0 Bench v3 (in [plan.md](../plan.md)): open-loop
+goodput-at-SLO, multiple workload shapes (short-chat vs long-context),
+driver / `nvidia-smi -q` capture from the GPU node, optional swap to
+MLPerf for published numbers.
 
 ---
 

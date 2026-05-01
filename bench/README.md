@@ -1,7 +1,8 @@
-# W1.6 — Benchmark harness
+# Benchmark harness (W1.6 + W1.7)
 
-Wave item: **W1.6** (see [`../plan.md`](../plan.md) → "Benchmark Methodology"
-and the Wave 1 deliverable list).
+Wave items: **W1.6** (baseline harness) and **W1.7** (v2: streaming TTFT/TPOT,
+repeats, validity, knee, run metadata). See [`../plan.md`](../plan.md) →
+"Benchmark Methodology" and the Wave 1 deliverable list.
 
 > *"One-off curl numbers ('54.6 t/s on one prompt') are not credible
 > performance data. We need a repeatable harness."* — plan.md
@@ -10,36 +11,45 @@ and the Wave 1 deliverable list).
 
 | File | Role |
 |---|---|
-| [`lab_bench.py`](lab_bench.py) | The harness itself. Pure stdlib, single file. |
-| [`namespace.yaml`](namespace.yaml) | `lab-bench` namespace + 1Gi results PVC |
-| [`job-vllm-w1.2.yaml`](job-vllm-w1.2.yaml) | W1.2 vLLM sweep, c=[1,4,8,16] x 20 runs |
-| [`job-ollama-w1.1.yaml`](job-ollama-w1.1.yaml) | W1.1 Ollama sweep, c=[1,4] x 20 runs |
+| [`lab_bench.py`](lab_bench.py) | The harness. Pure stdlib, single file. Schema `unbounded-lab-bench/v2`. |
+| [`namespace.yaml`](namespace.yaml) | `lab-bench` namespace + 1 Gi results PVC |
+| [`job-vllm-w1.2.yaml`](job-vllm-w1.2.yaml) | **W1.6** vLLM sweep, c=[1,4,8,16] × 20 runs, ~3 min |
+| [`job-ollama-w1.1.yaml`](job-ollama-w1.1.yaml) | **W1.6** Ollama sweep, c=[1,4] × 20 runs |
+| [`job-vllm-w1.7-sweep.yaml`](job-vllm-w1.7-sweep.yaml) | **W1.7** vLLM wide+streaming sweep, c=1..64 × 12 runs × 3 repeats, ~25 min |
 | [`results/`](results/) | JSON results extracted from Job logs |
 
-The harness is deliberately stdlib-only (no `requests`, no `httpx`,
-no `aiohttp`) so the Job container is a clean `python:3.12-slim` image
-with **zero pip installs in the hot path**. Dependencies are a known
-class of "the benchmark broke because PyPI sneezed"; we don't want
-that variable when we're measuring the engine.
+The harness is deliberately stdlib-only (no `requests`, `httpx`,
+`aiohttp`) so the Job container is a clean `python:3.12-slim` image
+with **zero pip installs in the hot path**.
 
 ## How a measurement run works
 
 1. The harness ships into the cluster as a ConfigMap built from
    [`lab_bench.py`](lab_bench.py) by `make w1.6-up`.
-2. A Job (`job-vllm-w1.2.yaml` or `job-ollama-w1.1.yaml`) mounts the
-   ConfigMap, runs the harness against the in-cluster engine Service,
-   and writes both a JSON results file to a 1Gi PVC *and* a copy to
-   stdout (so `kubectl logs` carries the JSON for free).
-3. `make w1.6-results-fetch` extracts the JSON blocks from each Job's
-   logs into `bench/results/<job>.json`. Source-controlled. Diff-able.
+2. The W1.7 target also writes a tiny `lab-bench-meta` ConfigMap
+   carrying the working-tree git short SHA, so the harness can record
+   it in the result JSON's `meta.harness_git_sha`.
+3. A Job mounts the ConfigMap, runs the harness against the in-cluster
+   engine Service, and writes both a JSON results file to the PVC *and*
+   a copy to stdout (so `kubectl logs` carries the JSON for free).
+4. `make w1.7-results-fetch` (or `w1.6-results-fetch`) extracts the JSON
+   from the Job's logs into `bench/results/`. Source-controlled.
 
-## Run it
+## Run it — W1.7 (current)
 
 ```sh
 make w1.6-up                 # namespace + PVC + script ConfigMap
-make w1.6-run-vllm           # full vLLM sweep, ~80 s wallclock
-make w1.6-run-ollama         # full Ollama sweep, ~longer (single-stream engine)
-make w1.6-results-fetch      # pulls JSON into bench/results/
+make w1.7-run-vllm           # full streaming sweep, c=1..64, 3 repeats, ~25 min
+make w1.7-results-fetch
+make w1.7-show               # median per-c row + knee + meta header
+```
+
+## Run it — W1.6 (baseline; kept for reproducibility)
+
+```sh
+make w1.6-up
+make w1.6-run-vllm           # narrower sweep c=[1,4,8,16], non-streaming, ~3 min
+make w1.6-results-fetch
 ```
 
 The Jobs are pinned to the AKS gateway/system pool so the bench
@@ -47,73 +57,103 @@ traffic crosses the same WireGuard path real clients use. Running the
 bench client on the same Spark as the engine would be a hot-loop fakery
 that overstates throughput.
 
-## What the JSON contains
+## Schema `unbounded-lab-bench/v2` (W1.7)
+
+Header (top level):
 
 ```json
 {
-  "schema": "unbounded-lab-bench/v1",
+  "schema": "unbounded-lab-bench/v2",
+  "harness_version": "0.2.0",
   "engine": "vllm-openai",
   "model": "Qwen/Qwen3-30B-A3B-GPTQ-Int4",
-  "prompt_len_target_tokens": 512,
-  "gen_len_max_tokens": 128,
-  "phases": [
-    {"concurrency": 1,  "ok_count": 20, "latency_s_p50": 2.05, "latency_s_p99": 2.09,
-     "aggregate_decode_tokens_per_s": 62.46,  "per_req_decode_tokens_per_s_p50": 62.50, ...},
-    {"concurrency": 16, "ok_count": 20, "latency_s_p50": 2.81, "latency_s_p99": 2.82,
-     "aggregate_decode_tokens_per_s": 462.19, "per_req_decode_tokens_per_s_p50": 45.52, ...}
-  ]
+  "stream": true,
+  "concurrency_levels": [1,2,4,8,16,32,48,64],
+  "runs_per_phase": 12, "warmup_per_phase": 2, "repeats_count": 3,
+  "min_completion_tokens": 32,
+  "knee_plateau_ratio": 1.05, "knee_collapse_ratio": 0.5,
+  "knee_concurrency": 32, "knee_reason": "throughput_plateau",
+  "meta": {
+    "harness_git_sha": "abc1234",
+    "harness_version": "0.2.0",
+    "engine_version": "0.11.0",
+    "client_pod_name": "lab-bench-vllm-w1-7-xxxxx",
+    "client_node_name": "aks-gwmain-...",
+    "kernel": "5.15.0-...",
+    "gpus": [
+      {"hostname": "spark-2c24", "uuid": "GPU-...", "gpu_index": "0",
+       "model": "NVIDIA Spark", "device": "nvidia0"}
+    ]
+  },
+  "repeats": [ { "iter": 0, "phases": [ ...per-c phase records... ] }, ... ],
+  "aggregate": { "by_concurrency": [
+    {"concurrency": 1,
+     "aggregate_decode_tokens_per_s": {"min": 62.1, "median": 62.8, "max": 63.1, "n": 3},
+     "ttft_s_p50": {"min": 0.18, "median": 0.19, "max": 0.21, "n": 3},
+     "tpot_ms_p50": {"min": 15.4, "median": 15.7, "max": 16.0, "n": 3},
+     ...
+    }
+  ]}
 }
 ```
 
-Per the plan's methodology section we record (and the JSON carries)
-all of: prompt length target, generation length, concurrency, model,
-engine, image tag implicit in the Job manifest, started/finished UTC,
-and per-phase wallclock so `aggregate_tps` is independently verifiable
-from `total_tokens / wallclock`.
+Per-phase fields (inside `repeats[i].phases[]`):
 
-## Why not k6 / locust / vegeta?
+- `concurrency`, `runs`, `warmup_runs`, `wallclock_s`
+- `aggregate_decode_tokens_per_s`, `peak_gpu_power_w`
+- `latency_s_p50/p95/p99/_mean`
+- `ttft_s_p50/p95/p99` (null when `--no-stream`)
+- `tpot_ms_p50/p95` (null when `--no-stream`)
+- `per_req_decode_tokens_per_s_p50/p95`
+- `prompt_tokens_mean`, `completion_tokens_mean`
+- `truncated_count`, `min_output_chars`, `invalid_utf8_count`,
+  `quality_warning`
+- `ok_count`, `failed_count`, `errors_sample`
+
+Back-compat: when `--repeats 1`, the JSON also includes a flat
+`phases: [...]` field with the v1 record shape so old jq queries keep
+working.
+
+## Why not k6 / locust / vegeta / MLPerf?
 
 - k6 has no first-class OpenAI / Ollama protocol support; we'd write
   the same JSON-body code in JS.
-- Locust adds a Python runtime and master/worker dance for what is
-  20-80 sequential requests per phase; overkill.
+- Locust adds a Python runtime and master/worker dance for 20-80
+  sequential requests per phase; overkill.
 - vegeta is HTTP-only and reports HTTP latency, not tokens/sec — we
   need both the wallclock latency *and* the engine's `usage` block to
   separate "request was slow" from "request returned few tokens."
+- MLPerf Inference Server is the right answer for **published**
+  numbers but is heavy. Wave 2 may swap to it for sponsor-published
+  numbers and keep this harness as the regression-detector. Listed as
+  a W2.0 carry-over in plan.md.
 
-The harness is ~300 lines of Python and does exactly the four things
-we need: warm up, drive concurrent requests, summarise (p50/p95/p99 +
-aggregate t/s + per-request decode t/s), and emit JSON.
+## Known limitations (carry-overs to W2.0 Bench v3)
 
-## Known limitations / follow-ups
-
-- **`peak_gpu_fb_bytes` records as null today.** The Prometheus
-  `query_range` for `DCGM_FI_DEV_FB_USED` swallows exceptions silently
-  and returns `None`. The bench Job runs as `runAsNonRoot: true` so
-  any `urllib` DNS / connect issue surfaces as a caught exception, not
-  a hard fail. To be tightened in a small follow-up: log the prom
-  query error to stderr instead of swallowing it, and also accept
-  `--prom-skew-s` for the time-window padding around each phase.
-- **No streaming-mode TTFT metric.** Today we measure end-to-end
-  request latency. Time-to-first-token under streaming requires
-  switching to chunked reads; deferred until a Wave 2 streaming-UX
-  story actually wants it.
-- **Single prompt template.** The harness drives `make_prompt(target_tokens)`
-  which is a deterministic Lorem-ipsum filler plus a fixed question.
-  Good for "is the engine fast" — bad for "does the model give good
-  answers." The *quality* eval is the W2.x eval-harness work, not this.
-- **No SGLang adapter.** When SGLang lands at W2.4 it speaks the
-  OpenAI `/v1` API natively, so the existing `--engine vllm-openai`
-  caller will hit it unmodified; the only diff is the URL.
+- **Closed-loop only.** Driven by `ThreadPoolExecutor` at fixed
+  concurrency — understates tail latency vs. real Poisson-arrival
+  traffic. Open-loop / `goodput@SLO` is W2.0.
+- **One workload shape.** Fixed Lorem-ipsum prompt, 512 in / 128 out.
+  Real benchmarks need short-chat (256/128) and long-context (4k/512)
+  profiles. W2.0.
+- **No GPU-node driver / firmware capture.** `meta.kernel` is the
+  bench-pod kernel, not the Spark kernel. A privileged sidecar with
+  `nvidia-smi -q` lands in W2.0 alongside Workload Identity.
+- **Single-engine sweep.** The W1.7 wide sweep targets vLLM only.
+  Ollama saturates at very low concurrency and wants its own profile;
+  tracked as a W1.7-followup, doesn't block W1.7 close.
 
 ## GB200 / GB300 transfer
 
-- harness: transplants unchanged.
-- Job manifests: change `agentpool` selectors to whatever the new
-  control plane uses; everything else is engine-Service-DNS,
-  unchanged.
-- The schema `unbounded-lab-bench/v1` is pinned so any later analyzer
-  / Grafana ingestion works against historical results across hardware.
+- Harness: transplants unchanged.
+- Job manifests: change `agentpool` selectors; everything else is
+  engine-Service-DNS, unchanged.
+- Schema is versioned, so historical sweeps stay diffable across
+  hardware generations.
+- After GB200 dcgm reports `DCGM_FI_DEV_FB_USED` natively (Spark Tegra
+  silently omits it), `peak_gpu_power_w` can be joined with `peak_fb_bytes`
+  in the result JSON. Tracked in
+  [`docs/wave-1-transfer-review.md`](../docs/wave-1-transfer-review.md).
 
 ## Status / teardown
 

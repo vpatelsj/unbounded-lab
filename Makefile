@@ -39,7 +39,8 @@ endef
         w1.2-vllm-up w1.2-vllm-down w1.2-vllm-status \
         w1.4-up w1.4-down w1.4-status w1.4-creds \
         w1.5-up w1.5-down w1.5-status w1.5-grafana w1.5-grafana-pwd \
-        w1.6-up w1.6-down w1.6-run-vllm w1.6-run-ollama w1.6-results w1.6-results-fetch
+        w1.6-up w1.6-down w1.6-run-vllm w1.6-run-ollama w1.6-results w1.6-results-fetch \
+        w1.7-run-vllm w1.7-results-fetch w1.7-show
 
 # Aggregate W1.1 = Ollama engine + Open WebUI customer chat UI.
 w1.1-up: w1.1-ollama-up w1.1-openwebui-up ## W1.1 deploy/redeploy: Ollama (Qwen MoE on spark-3d37) + Open WebUI. Set LAB_HOST=<fqdn> for the Open WebUI public hostname.
@@ -196,3 +197,46 @@ w1.6-results-fetch: ## W1.6 extract the latest JSON results from Job logs into b
 	  fi; \
 	done
 	@ls -la bench/results/ 2>/dev/null || true
+
+# W1.7 = bench harness v2: streaming TTFT/TPOT, --repeats sweep, output
+# validity floor, run metadata header, knee detection. Same Python file
+# as W1.6 (lab_bench.py); the wave is differentiated by Job manifest +
+# CLI flags. Schema bumps to unbounded-lab-bench/v2.
+w1.7-run-vllm: w1.6-up ## W1.7 run the wider streaming bench sweep (c=1..64, repeats=3, ~25 min). Sets LAB_BENCH_GIT_SHA from the working tree.
+	@sha=$$(git rev-parse --short HEAD 2>/dev/null || echo unknown); \
+	  kubectl -n lab-bench create configmap lab-bench-meta \
+	    --from-literal=git_sha=$$sha \
+	    --dry-run=client -o yaml | kubectl apply -f -
+	kubectl delete -f bench/job-vllm-w1.7-sweep.yaml --ignore-not-found
+	kubectl apply -f bench/job-vllm-w1.7-sweep.yaml
+	kubectl -n lab-bench wait --for=condition=complete --timeout=45m job/lab-bench-vllm-w1-7
+
+w1.7-results-fetch: ## W1.7 extract the latest sweep JSON from Job logs into bench/results/lab-bench-vllm-w1-7.json
+	@mkdir -p bench/results
+	@pod=$$(kubectl -n lab-bench get pod -l job-name=lab-bench-vllm-w1-7 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
+	  if [ -z "$$pod" ]; then echo 'no W1.7 pod found; run `make w1.7-run-vllm` first'; exit 1; fi; \
+	  kubectl -n lab-bench logs $$pod 2>/dev/null \
+	    | awk '/^{$$/,/^}$$/' > bench/results/lab-bench-vllm-w1-7.json; \
+	  if [ -s bench/results/lab-bench-vllm-w1-7.json ]; then \
+	    echo "extracted bench/results/lab-bench-vllm-w1-7.json"; \
+	  else \
+	    rm -f bench/results/lab-bench-vllm-w1-7.json; \
+	    echo "no JSON found in pod logs"; exit 1; \
+	  fi
+
+w1.7-show: ## W1.7 pretty-print the median per-concurrency row + knee from the latest sweep JSON.
+	@f=bench/results/lab-bench-vllm-w1-7.json; \
+	  test -f $$f || (echo "missing $$f; run \`make w1.7-results-fetch\`"; exit 1); \
+	  jq -r '"schema=" + .schema + "  engine_version=" + (.meta.engine_version // "?") + "  git_sha=" + (.meta.harness_git_sha // "?") + "  gpus=" + ((.meta.gpus | length) | tostring), \
+	         "knee_concurrency=" + (.knee_concurrency // "null" | tostring) + "  reason=" + (.knee_reason // "null"), \
+	         (["c","agg_tps","p50_s","ttft_ms","tpot_ms","per_req_tps","peak_w","trunc"] | @tsv), \
+	         (.aggregate.by_concurrency[] | [ \
+	           .concurrency, \
+	           (.aggregate_decode_tokens_per_s.median // "n/a"), \
+	           (.latency_s_p50.median // "n/a"), \
+	           (((.ttft_s_p50.median // 0)*1000 | floor)), \
+	           ((.tpot_ms_p50.median // 0) | floor), \
+	           (.per_req_decode_tokens_per_s_p50.median // "n/a"), \
+	           (.peak_gpu_power_w.median // "n/a"), \
+	           (.truncated_count_total // 0) \
+	         ] | @tsv)' $$f | column -t

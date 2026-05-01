@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lab-bench-vllm-w1-7
+  namespace: lab-bench
+  labels:
+    app.kubernetes.io/name: lab-bench
+    lab.unbounded.cloud/wave: "1.7"
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lab-bench
+    spec:
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+      # Same network path as W1.6: AKS gwmain/system pool -> WireGuard ->
+      # Spark. Avoids same-node hot-loop fakery.
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: agentpool
+                    operator: In
+                    values: ["gwmain", "system"]
+      enableServiceLinks: false
+      containers:
+        - name: bench
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/bench/lab_bench.py"]
+          args:
+            - --engine=vllm-openai
+            - --url=http://vllm.lab-vllm-qwen-moe.svc.cluster.local:8000/v1
+            - --model=Qwen/Qwen3-30B-A3B-GPTQ-Int4
+            - --prompt-len=512
+            - --gen-len=128
+            - --concurrency=1,2,4,8,16,32,48,64
+            - --runs=12
+            - --warmup=2
+            - --repeats=3
+            - --stream
+            - --min-completion-tokens=32
+            - --prom-url=http://lab-obs-kube-prometheus-st-prometheus.lab-observability.svc.cluster.local:9090
+            - --label=w1.7-sweep-vllm
+            - --out=/results/w1.7-vllm.json
+          env:
+            - name: LAB_BENCH_GIT_SHA
+              valueFrom:
+                configMapKeyRef:
+                  name: lab-bench-meta
+                  key: git_sha
+                  optional: true
+            - name: LAB_BENCH_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - { name: bench-script, mountPath: /bench, readOnly: true }
+            - { name: results,      mountPath: /results }
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits:   { cpu: "1",    memory: "512Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: bench-script
+          configMap:
+            name: lab-bench-script
+            items:
+              - { key: lab_bench.py, path: lab_bench.py }
+        - name: results
+          persistentVolumeClaim:
+            claimName: lab-bench-results
